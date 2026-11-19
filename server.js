@@ -1,8 +1,15 @@
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
-const { WebcastPushConnection } = require('tiktok-live-connector');
+const tiktokLib = require('tiktok-live-connector');
 const path = require('path');
+
+// Hem eski (WebcastPushConnection) hem yeni (TikTokLiveConnection) sürüm uyumluluğu
+const TikTokConnectorClass =
+    tiktokLib.TikTokLiveConnection ||
+    tiktokLib.WebcastPushConnection ||
+    (tiktokLib.default && (tiktokLib.default.TikTokLiveConnection || tiktokLib.default.WebcastPushConnection || tiktokLib.default)) ||
+    tiktokLib;
 
 const app = express();
 const server = http.createServer(app);
@@ -49,9 +56,7 @@ let tiktokConnection = null;
 let connectedUsername = process.env.TIKTOK_USERNAME || '';
 let connectionStatus = 'Bağlantı bekleniyor (Test Modu Aktif)';
 
-// ÇİFT KATMANLI KAMERA KUYRUĞU
-// 1) giftFocusQueue: Jeton/hediye atan herkes %100 garantili olarak sıraya girer, ASLA silinmez/engellenmez.
-// 2) freeFocusQueue: Katıl, Ayrıl, Beğeni gibi ücretsiz etkileşimler hediye yokken sırayla gösterilir.
+// Çift Katmanlı Kamera Kuyruğu
 let activeFocus = null;
 let giftFocusQueue = [];
 let freeFocusQueue = [];
@@ -64,14 +69,24 @@ let gameState = {
     timeLeft: ROUND_DURATION,
     seatLayout: SEAT_LAYOUT,
     seats: Array(MAX_SEATS).fill(null),
-    exitingStudents: [], // Sınıftan yürüyerek çıkan karakterler (4.2 sn animasyon)
+    exitingStudents: [],
     proctors: [],
     proctorRecord: 0,
     activeFocus: null,
     banner: null,
     cheatPasses: [],
-    worldEffect: null // 'amnesty' veya 'discipline' dalgası
+    worldEffect: null
 };
+
+function extractTikTokUser(data) {
+    const u = (data && data.user) ? data.user : (data || {});
+    const picFromArray = u.profilePicture && Array.isArray(u.profilePicture.url) ? u.profilePicture.url[0] : '';
+    return {
+        userId: String(u.uniqueId || data.uniqueId || u.userId || 'izleyici'),
+        nickname: u.nickname || data.nickname || u.uniqueId || 'İzleyici',
+        avatar: picFromArray || u.profilePictureUrl || data.profilePictureUrl || ''
+    };
+}
 
 function getRandomAvatarColor(name) {
     const colors = ['#f59e0b', '#10b981', '#3b82f6', '#8b5cf6', '#ec4899', '#06b6d4', '#f97316'];
@@ -95,7 +110,6 @@ function touchUserActivity(userId) {
     }
 }
 
-// Garantili Kamera Odak Yöneticisi
 function scheduleCameraFocus(options) {
     const now = Date.now();
     const {
@@ -127,17 +141,13 @@ function scheduleCameraFocus(options) {
         subtitle,
         color,
         baseDurationMs,
-        createdAt: now,
-        shownMs: 0
+        createdAt: now
     };
 
     if (isGift) {
-        // KURAL: Jeton/hediye atan kişi ASLA engellenmez ve kuyruktan atılmaz!
         giftFocusQueue.push(item);
-        // Yüksek jeton atanlar öne geçer, eşit jetonlarda ilk atan önce gösterilir
         giftFocusQueue.sort((a, b) => b.coins - a.coins || a.createdAt - b.createdAt);
 
-        // Eğer şu an ekranda ÜCRETSİZ bir olay (katıl/ayrıl/beğeni) varsa, ANINDA kes ve hediye atana geç!
         if (activeFocus && !activeFocus.isGift) {
             const nextGift = giftFocusQueue.shift();
             const duration = getAdaptiveGiftDuration(giftFocusQueue.length, nextGift.baseDurationMs);
@@ -146,7 +156,6 @@ function scheduleCameraFocus(options) {
             return;
         }
 
-        // Eğer şu an daha düşük jetonlu bir hediye ekrandaysa ve en az 1.2 sn gösterildiyse, yüksek jetonluya geç
         if (activeFocus && activeFocus.isGift && coins > activeFocus.coins && (now - activeFocus.startedAt) >= 1200) {
             const nextGift = giftFocusQueue.shift();
             const duration = getAdaptiveGiftDuration(giftFocusQueue.length, nextGift.baseDurationMs);
@@ -162,20 +171,13 @@ function scheduleCameraFocus(options) {
             gameState.activeFocus = activeFocus;
         }
     } else {
-        // Ücretsiz etkileşim (katıl, ayrıl, beğeni)
-        // Zaten hediye kuyruğunda bekleyen varsa ücretsiz olay kamerayı meşgul etmez
         if (giftFocusQueue.length > 0 || (activeFocus && activeFocus.isGift)) {
             return;
         }
-
-        // Aynı kişinin ücretsiz olayı zaten kuyrukta varsa tekrar ekleme
         if (freeFocusQueue.some(q => q.userId === userId && q.type === type)) {
             return;
         }
-
-        // Ücretsiz kuyrukta en fazla 3 olay tut (spam birikmesini önler)
         if (freeFocusQueue.length >= 3) {
-            // Ayrılma/katılma gibi animasyonları beğeninin önüne al
             if (priority > freeFocusQueue[freeFocusQueue.length - 1].priority) {
                 freeFocusQueue.pop();
             } else {
@@ -194,20 +196,16 @@ function scheduleCameraFocus(options) {
     }
 }
 
-// Hediye yoğunluğuna göre süre ayarı: Kimseyi atlamadan herkesi akıcı şekilde gösterir
 function getAdaptiveGiftDuration(waitingCount, baseMs) {
-    if (waitingCount >= 7) return 1400; // Çok yoğun hediye yağmuru: hızlı ama herkes görünür
-    if (waitingCount >= 3) return 2000; // Orta yoğunluk
-    return baseMs; // Normal akış: 2.8 - 3.6 saniye detaylı çekim
+    if (waitingCount >= 7) return 1400;
+    if (waitingCount >= 3) return 2000;
+    return baseMs;
 }
 
 function processFocusQueues() {
     const now = Date.now();
-    if (activeFocus && now < activeFocus.expiresAt) {
-        return;
-    }
+    if (activeFocus && now < activeFocus.expiresAt) return;
 
-    // 1. Öncelik HER ZAMAN VIP Hediye Kuyruğundadır
     if (giftFocusQueue.length > 0) {
         const nextGift = giftFocusQueue.shift();
         const duration = getAdaptiveGiftDuration(giftFocusQueue.length, nextGift.baseDurationMs);
@@ -216,7 +214,6 @@ function processFocusQueues() {
         return;
     }
 
-    // 2. Hediye yoksa ücretsiz etkileşim animasyonlarını sırayla göster (8 sn'den eski bayatları temizle)
     freeFocusQueue = freeFocusQueue.filter(q => now - q.createdAt < 8000);
     if (freeFocusQueue.length > 0) {
         const nextFree = freeFocusQueue.shift();
@@ -238,7 +235,6 @@ function triggerBanner(title, subtitle, color = '#f59e0b') {
     };
 }
 
-// En Yakın Komşuyu Bulma (3D Fiziksel Mesafeye Göre)
 function findNearestNeighborSeat(actorSeatIdx, actorScore) {
     const posA = SEAT_LAYOUT[actorSeatIdx];
     const candidates = [];
@@ -258,7 +254,6 @@ function findNearestNeighborSeat(actorSeatIdx, actorScore) {
     return higherInNeighborhood ? higherInNeighborhood.student : closestFour[0].student;
 }
 
-// Gözetmen Yakınlık Kontrolü
 function checkProctorProximityPenalty(giverSeatIdx, receiverSeatIdx, actorUser, coins, isSabotage = false) {
     if (gameState.proctors.length === 0) return false;
     const now = Date.now();
@@ -282,7 +277,6 @@ function checkProctorProximityPenalty(giverSeatIdx, receiverSeatIdx, actorUser, 
                 proctor.catches += 1;
                 anyoneCaught = true;
 
-                // Hediye atan kişi yakalansa bile kamerada mutlaka görünür!
                 scheduleCameraFocus({
                     isGift: true,
                     coins,
@@ -302,7 +296,6 @@ function checkProctorProximityPenalty(giverSeatIdx, receiverSeatIdx, actorUser, 
     return anyoneCaught;
 }
 
-// Öğrenci Sınıfa Giriş (Uzun Yürüyüş & El Sallama Animasyonu ile)
 function seatStudent(user, skipCamera = false) {
     const existingIdx = findStudentByUserId(user.userId);
     if (existingIdx !== -1) {
@@ -350,13 +343,12 @@ function seatStudent(user, skipCamera = false) {
             title: `🚪 ${user.nickname} Sınıfa Girdi!`,
             subtitle: `Amfi Sıra #${chosenSeat + 1} koltuğuna yürüyor...`,
             color: '#34d399',
-            baseDurationMs: 3800 // 3.8 saniye detaylı yürüyüş ve oturma çekimi
+            baseDurationMs: 3800
         });
     }
     return chosenSeat;
 }
 
-// Öğrenci Sınıftan Ayrılış (Ayağa Kalkma, El Sallama ve Kapıdan Çıkış Animasyonu)
 function removeStudentFromHall(seatIdx, reasonText = 'Yayından ayrıldı') {
     const student = gameState.seats[seatIdx];
     if (!student) return;
@@ -364,7 +356,6 @@ function removeStudentFromHall(seatIdx, reasonText = 'Yayından ayrıldı') {
     const now = Date.now();
     gameState.seats[seatIdx] = null;
 
-    // Ayrılan karakteri 4.2 saniyelik çıkış animasyonu listesine ekle
     gameState.exitingStudents.push({
         id: now + Math.random(),
         userId: student.userId,
@@ -387,7 +378,7 @@ function removeStudentFromHall(seatIdx, reasonText = 'Yayından ayrıldı') {
         title: `👋 ${student.nickname} Sınıftan Ayrıldı`,
         subtitle: `${reasonText} • Çıkış kapısına yürüyor...`,
         color: '#94a3b8',
-        baseDurationMs: 3600 // 3.6 saniye ayrılış çekimi
+        baseDurationMs: 3600
     });
 }
 
@@ -433,7 +424,6 @@ function promoteToProctor(user, coins) {
         }
     }
 
-    // Gözetmen olan bağışçı mutlaka kamerada gösterilir!
     if (coins > 0) {
         scheduleCameraFocus({
             isGift: true,
@@ -480,7 +470,6 @@ function handleLike(user, count = 1) {
     student.studyingUntil = now + 3000;
     student.lastPopup = { text: `+${allowedGain} Çalıştı`, color: '#4ade80', id: now + Math.random() };
 
-    // Beğeni animasyonu da kamera boşta kaldığında öğrenciyi gösterir (kişi başı 15 sn kamera bekleme süresiyle)
     const lastCam = likeCamCooldown.get(user.userId) || 0;
     if (now - lastCam > 15000) {
         likeCamCooldown.set(user.userId, now);
@@ -503,7 +492,6 @@ function handleGift(user, coins) {
     const now = Date.now();
     touchUserActivity(user.userId);
 
-    // 1. Gözetmen Atama / Devir Kontrolü (100+ Jeton veya Mevcut Rekoru Geçme)
     if (coins >= 100 || (coins > gameState.proctorRecord && coins >= 15) || (coins === gameState.proctorRecord && coins >= 15)) {
         promoteToProctor(user, coins);
 
@@ -538,7 +526,6 @@ function handleGift(user, coins) {
         return;
     }
 
-    // Aktif gözetmen hediye atarsa kendi puanını/yakalamasını artırıp kamerada görünsün
     const activeProctor = gameState.proctors.find(p => p.userId === user.userId);
     if (activeProctor) {
         activeProctor.coins += coins;
@@ -557,7 +544,6 @@ function handleGift(user, coins) {
         return;
     }
 
-    // Öğrenci değilse önce sıraya oturt (skipCamera=true çünkü hediye kamerası doğrudan açılacak!)
     let idx = findStudentByUserId(user.userId);
     if (idx === -1) {
         idx = seatStudent(user, true);
@@ -567,7 +553,6 @@ function handleGift(user, coins) {
     actor.lastActiveAt = now;
     const occupied = gameState.seats.filter(s => s && s.userId !== user.userId);
 
-    // 50 - 99 Jeton: Cevap Anahtarı Ele Geçirme
     if (coins >= 50) {
         actor.score += 120;
         actor.statusEffect = 'answer_key';
@@ -595,7 +580,6 @@ function handleGift(user, coins) {
         return;
     }
 
-    // 10 - 49 Jeton: Gözetmene İspiyonlama
     if (coins >= 10) {
         const cheaters = occupied.filter(s => s.cheatingUntil > now);
         const target = cheaters.length > 0
@@ -652,7 +636,6 @@ function handleGift(user, coins) {
         return;
     }
 
-    // 5 - 9 Jeton: En Yakın Rakibe Yanlış Kopya Verme
     if (coins >= 5) {
         const victim = findNearestNeighborSeat(idx, actor.score);
         if (victim) {
@@ -706,7 +689,6 @@ function handleGift(user, coins) {
         return;
     }
 
-    // 1 - 4 Jeton (Gül vb.): En Yakınındaki Kişiden Kopya Çekme
     const neighbor = findNearestNeighborSeat(idx, actor.score);
     actor.cheatingUntil = now + 6000;
     actor.cheatTargetSeat = neighbor ? neighbor.seatIndex : -1;
@@ -746,7 +728,6 @@ function handleGift(user, coins) {
     }
 }
 
-// Hızlı Döngü (200ms): Kamera Kuyruğu & Gözetmen Yakınlık Kontrolü
 setInterval(() => {
     const now = Date.now();
     processFocusQueues();
@@ -781,7 +762,6 @@ setInterval(() => {
     });
 }, 200);
 
-// Ana Oyun Döngüsü (1 Saniye)
 setInterval(() => {
     const now = Date.now();
     gameState.cheatPasses = gameState.cheatPasses.filter(cp => now - cp.createdAt < 3200);
@@ -790,7 +770,6 @@ setInterval(() => {
         gameState.worldEffect = null;
     }
 
-    // 1. Yayından ayrılan / 3 dakikadır etkileşimsiz kalan öğrencileri animasyonla çıkar
     for (let i = 0; i < MAX_SEATS; i++) {
         const s = gameState.seats[i];
         if (s && (now - s.lastActiveAt > INACTIVITY_TIMEOUT_MS)) {
@@ -798,13 +777,11 @@ setInterval(() => {
         }
     }
 
-    // 2. Uzun süre yayında olmayan pasif gözetmeni emekli et
     gameState.proctors = gameState.proctors.filter(p => (now - p.lastActiveAt) <= 240000);
     if (gameState.proctors.length === 0 && gameState.proctorRecord > 0) {
         gameState.proctorRecord = 0;
     }
 
-    // 3. Gözetmenleri amfi içinde gezdir
     gameState.proctors.forEach(proctor => {
         if (Math.random() < 0.3) {
             const angle = (Math.random() - 0.5) * 1.45;
@@ -820,7 +797,6 @@ setInterval(() => {
         proctor.y = 0.4 + approxTier * 0.72;
     });
 
-    // 4. Tur Geri Sayımı
     gameState.timeLeft -= 1;
     if (gameState.timeLeft <= 0) {
         const activeStudents = gameState.seats.filter(Boolean).sort((a, b) => b.score - a.score);
@@ -850,7 +826,6 @@ setInterval(() => {
     });
 }, 1000);
 
-// TikTok Canlı Yayın Bağlantısı
 function connectToTikTok(username) {
     if (!username) return;
     const cleanUser = username.replace('@', '').trim();
@@ -863,12 +838,16 @@ function connectToTikTok(username) {
     connectionStatus = `@${cleanUser} yayınına bağlanılıyor...`;
     io.emit('status_update', { connectedUsername, connectionStatus });
 
-    tiktokConnection = new WebcastPushConnection(cleanUser, {
+    tiktokConnection = new TikTokConnectorClass(cleanUser, {
         processInitialData: false,
         enableExtendedGiftInfo: true
     });
 
     const streakTracker = new Map();
+
+    tiktokConnection.on('error', err => {
+        console.log('TikTok bağlantı uyarısı:', err && err.message ? err.message : err);
+    });
 
     tiktokConnection.connect().then(() => {
         connectionStatus = `CANLI BAĞLI: @${cleanUser}`;
@@ -879,22 +858,16 @@ function connectToTikTok(username) {
     });
 
     tiktokConnection.on('roomUser', data => {
-        if (data && Array.isArray(data.ranks)) {
-            data.ranks.forEach(r => {
-                if (r.user && r.user.uniqueId) {
-                    touchUserActivity(r.user.uniqueId);
-                }
-            });
-        }
+        const list = (data && (data.ranks || data.ranksList)) || [];
+        list.forEach(r => {
+            const u = extractTikTokUser(r);
+            if (u.userId) touchUserActivity(u.userId);
+        });
     });
 
     tiktokConnection.on('chat', data => {
         const msg = (data.comment || '').trim().toLowerCase();
-        const user = {
-            userId: data.uniqueId,
-            nickname: data.nickname || data.uniqueId,
-            avatar: data.profilePictureUrl
-        };
+        const user = extractTikTokUser(data);
         touchUserActivity(user.userId);
 
         if (msg === 'katıl' || msg === 'katil' || msg === '1' || msg.includes('katıl')) {
@@ -904,24 +877,19 @@ function connectToTikTok(username) {
     });
 
     tiktokConnection.on('like', data => {
-        handleLike({
-            userId: data.uniqueId,
-            nickname: data.nickname || data.uniqueId,
-            avatar: data.profilePictureUrl
-        }, data.likeCount || 1);
+        const user = extractTikTokUser(data);
+        handleLike(user, data.likeCount || 1);
     });
 
     tiktokConnection.on('gift', data => {
-        const user = {
-            userId: data.uniqueId,
-            nickname: data.nickname || data.uniqueId,
-            avatar: data.profilePictureUrl
-        };
-        const diamondValue = data.diamondCount || 1;
+        const user = extractTikTokUser(data);
+        const diamondValue = data.diamondCount || (data.giftDetails && data.giftDetails.diamondCount) || 1;
         const repeatCount = data.repeatCount || 1;
-        const key = `${data.uniqueId}_${data.giftId}`;
+        const giftType = data.giftType || (data.giftDetails && data.giftDetails.giftType) || 0;
+        const giftId = data.giftId || (data.giftDetails && data.giftDetails.id) || 0;
+        const key = `${user.userId}_${giftId}`;
 
-        if (data.giftType === 1 && !data.repeatEnd) {
+        if (giftType === 1 && !data.repeatEnd) {
             const prev = streakTracker.get(key) || 0;
             const delta = Math.max(0, repeatCount - prev);
             streakTracker.set(key, repeatCount);
@@ -977,7 +945,6 @@ io.on('connection', socket => {
                 : testUser;
             handleGift(actor, payload.coins);
         } else if (payload.type === 'gift_storm') {
-            // Aynı anda 4 farklı bağışçı test et (hiçbirinin atlanmadığını görmek için)
             const coinsList = [1, 5, 10, 50];
             coinsList.forEach((c, idx) => {
                 const n = Math.floor(100 + Math.random() * 900);
