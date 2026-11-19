@@ -850,13 +850,17 @@ function connectToTikTok(targetInput) {
     connectionStatus = `${label} yayınına bağlanılıyor...`;
     io.emit('status_update', { connectedUsername, connectionStatus });
 
-    // Ücretsiz EulerStream planında ücretli HTTP API imza uç noktasını tetiklememek için
-    // fetchRoomInfoOnConnect ve enableExtendedGiftInfo kapalı tutulur.
+    const browserHeaders = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
+    };
+
     tiktokConnection = new TikTokConnectorClass(isRoomId ? 'live_user' : cleanInput, {
         processInitialData: false,
         fetchRoomInfoOnConnect: false,
         enableExtendedGiftInfo: false,
-        signApiKey: process.env.SIGN_API_KEY ? process.env.SIGN_API_KEY.trim() : undefined
+        signApiKey: process.env.SIGN_API_KEY ? process.env.SIGN_API_KEY.trim() : undefined,
+        webClientOptions: { headers: browserHeaders },
+        wsClientOptions: { headers: browserHeaders }
     });
 
     const streakTracker = new Map();
@@ -901,10 +905,12 @@ function connectToTikTok(targetInput) {
     });
 
     tiktokConnection.on('chat', data => {
-        const msg = (data.comment || '').trim().toLocaleLowerCase('tr-TR');
+        // v2.5.0 protobuf (data.content) ve v1 (data.comment) uyumluluğu
+        const rawComment = data.content || data.comment || data.text || '';
+        const msg = String(rawComment).trim().toLocaleLowerCase('tr-TR');
         const user = extractTikTokUser(data);
         touchUserActivity(user.userId);
-        console.log(`[SOHBET] ${user.nickname}: ${data.comment}`);
+        console.log(`[SOHBET] ${user.nickname}: ${rawComment}`);
 
         if (msg === 'katıl' || msg === 'katil' || msg === '1' || msg.includes('katıl') || msg.includes('katil')) {
             seatStudent(user);
@@ -914,15 +920,17 @@ function connectToTikTok(targetInput) {
 
     tiktokConnection.on('like', data => {
         const user = extractTikTokUser(data);
-        handleLike(user, data.likeCount || 1);
+        const likeCount = Number(data.count || data.likeCount || 1);
+        handleLike(user, likeCount);
     });
 
     tiktokConnection.on('gift', data => {
         const user = extractTikTokUser(data);
-        const diamondValue = data.diamondCount || (data.giftDetails && data.giftDetails.diamondCount) || 1;
-        const repeatCount = data.repeatCount || 1;
-        const giftType = data.giftType || (data.giftDetails && data.giftDetails.giftType) || 0;
-        const giftId = data.giftId || (data.giftDetails && data.giftDetails.id) || 0;
+        const giftObj = data.giftDetails || data.gift || {};
+        const diamondValue = Number(data.diamondCount || giftObj.diamondCount || 1);
+        const repeatCount = Number(data.repeatCount || data.comboCount || 1);
+        const giftType = Number(data.giftType ?? giftObj.type ?? giftObj.giftType ?? 0);
+        const giftId = data.giftId || giftObj.id || 0;
         const key = `${user.userId}_${giftId}`;
 
         if (giftType === 1 && !data.repeatEnd) {
