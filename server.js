@@ -68,6 +68,8 @@ let freeFocusQueue = [];
 
 const likeRateLimiter = new Map();
 const likeCamCooldown = new Map();
+const alreadySeatedCamCooldown = new Map();
+const seenChatIds = new Set();
 
 let gameState = {
     round: 1,
@@ -301,10 +303,30 @@ function checkProctorProximityPenalty(giverSeatIdx, receiverSeatIdx, actorUser, 
     return anyoneCaught;
 }
 
-function seatStudent(user, skipCamera = false) {
+function seatStudent(user, skipCamera = false, notifyIfAlreadySeated = false) {
     const existingIdx = findStudentByUserId(user.userId);
     if (existingIdx !== -1) {
         touchUserActivity(user.userId);
+        console.log(`[OYUN] ${user.nickname} zaten Sıra #${existingIdx + 1} koltuğunda.`);
+        if (notifyIfAlreadySeated && !skipCamera) {
+            const now = Date.now();
+            const lastNotify = alreadySeatedCamCooldown.get(user.userId) || 0;
+            if (now - lastNotify > 8000) {
+                alreadySeatedCamCooldown.set(user.userId, now);
+                scheduleCameraFocus({
+                    isGift: false,
+                    coins: 0,
+                    priority: 2,
+                    type: 'already_seated',
+                    userId: user.userId,
+                    seatIndex: existingIdx,
+                    title: `👋 ${user.nickname} Zaten Sınıfta!`,
+                    subtitle: `Amfi Sıra #${existingIdx + 1} koltuğunda oturuyor (${gameState.seats[existingIdx].score} Puan)`,
+                    color: '#38bdf8',
+                    baseDurationMs: 2800
+                });
+            }
+        }
         return existingIdx;
     }
     if (gameState.proctors.some(p => p.userId === user.userId)) {
@@ -336,6 +358,9 @@ function seatStudent(user, skipCamera = false) {
         statusUntil: 0,
         lastPopup: { text: '+10 Sınıfa Girdi', color: '#34d399', id: now }
     };
+
+    const occupiedCount = gameState.seats.filter(Boolean).length;
+    console.log(`[OYUN] + ${user.nickname} Sıra #${chosenSeat + 1} koltuğuna oturdu! (Toplam: ${occupiedCount}/250)`);
 
     if (!skipCamera) {
         scheduleCameraFocus({
@@ -905,7 +930,14 @@ function connectToTikTok(targetInput) {
     });
 
     tiktokConnection.on('chat', data => {
-        // v2.5.0 protobuf (data.content) ve v1 (data.comment) uyumluluğu
+        const msgId = data.msgId || (data.common && data.common.msgId);
+        if (msgId) {
+            const idStr = String(msgId);
+            if (seenChatIds.has(idStr)) return;
+            seenChatIds.add(idStr);
+            if (seenChatIds.size > 1000) seenChatIds.clear();
+        }
+
         const rawComment = data.content || data.comment || data.text || '';
         const msg = String(rawComment).trim().toLocaleLowerCase('tr-TR');
         const user = extractTikTokUser(data);
@@ -913,7 +945,7 @@ function connectToTikTok(targetInput) {
         console.log(`[SOHBET] ${user.nickname}: ${rawComment}`);
 
         if (msg === 'katıl' || msg === 'katil' || msg === '1' || msg.includes('katıl') || msg.includes('katil')) {
-            seatStudent(user);
+            seatStudent(user, false, true);
             io.emit('state_update', { ...gameState, giftQueueLength: giftFocusQueue.length });
         }
     });
