@@ -840,7 +840,7 @@ function connectToTikTok(username) {
 
     tiktokConnection = new TikTokConnectorClass(cleanUser, {
         processInitialData: false,
-        enableExtendedGiftInfo: true
+        enableExtendedGiftInfo: true,
         signApiKey: process.env.SIGN_API_KEY
     });
 
