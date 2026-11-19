@@ -25,6 +25,7 @@ const ROUND_DURATION = 240; // 4 dakika
 const PODIUM_DURATION = 6;  // Tur sonu 6 saniye mezuniyet podyumu
 
 // 9:16 Dikey Telefon Kadrajına Tam Sığan 250 Kişilik 8 Kademeli Amfi Düzeni
+// Tier 0 (index 0..19) = En Ön Sıra, Tier 7 (index 211..249) = En Arka Sıra
 const TIER_COUNTS = [20, 24, 28, 31, 34, 36, 38, 39];
 const SEAT_LAYOUT = [];
 
@@ -55,6 +56,44 @@ const SEAT_LAYOUT = [];
     }
 })();
 
+// Çakışmasız Türk İsimleri & Niş Öğrenci Lakapları Havuzu
+const TURKISH_BOT_NAMES = [
+    'Kaan', 'Zeynep', 'Emirhan', 'Elif', 'Arda', 'Defne', 'Mert', 'Ecrin', 'Kerem', 'Asya',
+    'Burak', 'Nisa', 'Yusuf', 'Eylül', 'Ege', 'Miray', 'Batuhan', 'Beren', 'Alperen', 'Azra',
+    'Caner', 'Selin', 'Onur', 'İrem', 'Taha', 'Melis', 'Baran', 'Duru', 'Umut', 'Ceren',
+    'Göktuğ', 'Sude', 'Kuzey', 'Yağmur', 'Doruk', 'Nazlı', 'Poyraz', 'İlayda', 'Çınar', 'Beste',
+    'Rüzgar', 'Damla', 'Emre', 'Buse', 'Furkan', 'Simge', 'Oğuzhan', 'Tuana', 'Semih', 'Ebru',
+    'Koray', 'Gizem', 'Tolga', 'Hilal', 'Serkan', 'Esra', 'Volkan', 'Cansu', 'Sinan', 'Kübra',
+    'Hakan', 'Merve', 'Tarık', 'Büşra', 'Berkay', 'Aleyna', 'Çağatay', 'Dilara', 'Kıvanç', 'Şevval',
+    'Ömer', 'Hatice', 'Yiğit', 'Rabia', 'Tuna', 'Nehir', 'Atlas', 'Ada', 'Pars', 'Lina',
+    'Karan', 'Masal', 'Aren', 'Ela', 'Miran', 'Öykü', 'Eymen', 'Zümra', 'Ayaz', 'Derin',
+    'Metehan', 'Gökçe', 'Enes', 'Begüm', 'Melih', 'Cemre', 'Anıl', 'Sıla', 'Deniz', 'Melisa',
+    'Taylan', 'İpek', 'Bora', 'Ece', 'Kubilay', 'Pınar', 'Erhan', 'Derya', 'Cihan', 'Özge',
+    'Salih', 'Nihan', 'Yavuz', 'Funda', 'Murat', 'Didem', 'Levent', 'Aslı', 'Kemal', 'Betül',
+    'Orhan', 'Şeyma', 'Mustafa', 'Tuğba', 'Ahmet', 'Zehra', 'Mehmet', 'Fatma', 'Ali', 'Ayşe',
+    'Hasan', 'Emine', 'Hüseyin', 'Sultan', 'İbrahim', 'Yasemin', 'İsmail', 'Sibel', 'Osman', 'Filiz',
+    'Süleyman', 'Arzu', 'Ramazan', 'Gülşen', 'Recep', 'Sevgi', 'Mahmut', 'Neşe', 'Halil', 'Aylin',
+    'Eren', 'Berrak', 'Toprak', 'Sena', 'Ulaş', 'Bahar', 'Buğra', 'Burcu', 'Çağrı', 'Hande',
+    'Doğukan', 'Pelinsu', 'Erdem', 'Duygu', 'Gökhan', 'Eda', 'Harun', 'Feride', 'İlker', 'Gamze',
+    'Kadir', 'Hülya', 'Mazlum', 'İclal', 'Necati', 'Jale', 'Okan', 'Kardelen', 'Polat', 'Lale',
+    'Rıdvan', 'Mine', 'Savaş', 'Nazan', 'Taner', 'Oya', 'Ufuk', 'Perihan', 'Veli', 'Rüya',
+    'Yakup', 'Serap', 'Zafer', 'Şule', 'Alparslan', 'Tülay', 'Bilal', 'Ülkü', 'Cem', 'Vildan',
+    // Niş Türk Öğrenci & Sınav Lakapları
+    'SınavCanavarı', 'KopyaBükücü', 'ArkaSıraKralı', 'SonDakikaGolü', 'KalemKıran',
+    'KantinciAbi', 'GeceKuşu', 'MatematikDehası', 'SözlüKorkusu', 'SilgiTozu',
+    'UçluKalem07', 'TeneffüsZili', 'ÖnSıraİneği', 'SınavKaçağı', 'NotAvcısı',
+    'FormülÜstadı', 'SoruBükücü', 'ÇaycıHüseyin', 'TostçuErol', 'KantinKuyruğu',
+    'KarneCanavarı', 'BütünlemeKralı', 'VizeMagduru', 'FinalBoss', 'KalemUcu',
+    'SıraAltıTelefon', 'SilgiFırlatan', 'TahtaSilici', 'NöbetçiÖğrenci', 'YoklamaKaçağı',
+    'FizikProfu', 'KimyaBüyücüsü', 'TarihKurdu', 'EdebiyatAşığı', 'GeometriZekası',
+    'ZilÇaldıHocam', 'KalemTıraş', 'KareliDefter', 'KırmızıKalem', 'SözlüNotu100'
+];
+
+const TURKISH_SURNAMES = [
+    'Yılmaz', 'Kaya', 'Demir', 'Şahin', 'Çelik', 'Yıldız', 'Aydın', 'Öztürk',
+    'Arslan', 'Doğan', 'Kılıç', 'Aslan', 'Çetin', 'Kara', 'Koç', 'Kurt', 'Özkan', 'Şimşek'
+];
+
 let tiktokConnection = null;
 let reconnectTimer = null;
 let connectedUsername = (process.env.TIKTOK_ROOM_ID || process.env.TIKTOK_USERNAME || '').replace('@', '').trim();
@@ -71,7 +110,8 @@ const alreadySeatedCamCooldown = new Map();
 const reminderCooldown = new Map();
 const seenChatIds = new Set();
 
-// Gerçek yayın çıkış tespiti için izleyici listesi takibi
+// Gerçek yayın izleyicileri & çıkış tespiti
+const knownRealUsers = new Map();
 const seenInRoomUsers = new Set();
 const missingRoomUserStrikes = new Map();
 let lastKnownViewerCount = 0;
@@ -97,6 +137,44 @@ let gameState = {
     worldEffect: null
 };
 
+function normalizeTr(str) {
+    return String(str || '').trim().toLocaleLowerCase('tr-TR');
+}
+
+function getAllOccupiedNamesSet() {
+    const used = new Set();
+    for (const s of gameState.seats) {
+        if (s && s.nickname) used.add(normalizeTr(s.nickname));
+    }
+    for (const p of gameState.proctors) {
+        if (p && p.nickname) used.add(normalizeTr(p.nickname));
+    }
+    for (const ex of gameState.exitingStudents) {
+        if (ex && ex.nickname) used.add(normalizeTr(ex.nickname));
+    }
+    for (const realNick of knownRealUsers.values()) {
+        if (realNick) used.add(normalizeTr(realNick));
+    }
+    return used;
+}
+
+function pickUniqueBotName() {
+    const used = getAllOccupiedNamesSet();
+    const available = TURKISH_BOT_NAMES.filter(name => !used.has(normalizeTr(name)));
+    if (available.length > 0) {
+        return available[Math.floor(Math.random() * available.length)];
+    }
+
+    // Tüm havuz doluysa benzersiz Türk Ad + Soyad kombinasyonu üret
+    for (let attempt = 0; attempt < 200; attempt++) {
+        const fn = TURKISH_BOT_NAMES[Math.floor(Math.random() * 160)];
+        const sn = TURKISH_SURNAMES[Math.floor(Math.random() * TURKISH_SURNAMES.length)];
+        const combo = `${fn} ${sn}`;
+        if (!used.has(normalizeTr(combo))) return combo;
+    }
+    return `Aday_${Date.now().toString().slice(-4)}`;
+}
+
 function emitFx(type, payload = {}) {
     const now = Date.now();
     gameState.fxEvents.push({
@@ -105,16 +183,16 @@ function emitFx(type, payload = {}) {
         createdAt: now,
         ...payload
     });
-    if (gameState.fxEvents.length > 40) {
+    if (gameState.fxEvents.length > 50) {
         gameState.fxEvents.shift();
     }
 }
 
 function calculateProctorRadius(coins, isPanic = false) {
     const c = Math.max(0, Number(coins) || 0);
-    const base = 7.2 + Math.sqrt(c) * 0.65;
+    const base = 7.4 + Math.sqrt(c) * 0.68;
     const finalRad = isPanic ? base * 1.3 : base;
-    return Number(Math.min(18.5, finalRad).toFixed(2));
+    return Number(Math.min(19.0, finalRad).toFixed(2));
 }
 
 function getFlameLevel(score) {
@@ -122,7 +200,7 @@ function getFlameLevel(score) {
     if (score >= 450) return 4; // Mor Kozmik Alev
     if (score >= 250) return 3; // Mavi Plazma Alevi
     if (score >= 120) return 2; // Kızıl-Turuncu Güçlü Alev
-    if (score >= 50) return 1;  // Turuncu-Sarı Başlangıç Alevi
+    if (score >= 45) return 1;  // Turuncu-Sarı Başlangıç Alevi
     return 0;
 }
 
@@ -237,6 +315,10 @@ function extractTikTokUser(data) {
         nickname !== 'İzleyici' ? `nick_${nickname}` : ''
     ) || `anon_${Date.now()}_${Math.random()}`;
 
+    if (nickname !== 'İzleyici') {
+        knownRealUsers.set(userId, nickname);
+    }
+
     return {
         userId,
         nickname,
@@ -331,10 +413,16 @@ function scheduleCameraFocus(options) {
         if (giftFocusQueue.length > 0 || (activeFocus && activeFocus.isGift)) {
             return;
         }
+        // Alev alan öğrenciler sırayla ekrana gelsin diye aynı kullanıcı değilse kuyruğa ekle
         if (freeFocusQueue.some(q => q.userId === userId && q.type === type)) {
             return;
         }
-        if (freeFocusQueue.length >= 3) {
+        if (activeFocus && activeFocus.userId === userId && activeFocus.type === type) {
+            return;
+        }
+
+        const maxFreeQueue = type === 'flame' ? 6 : 4;
+        if (freeFocusQueue.length >= maxFreeQueue) {
             if (priority > freeFocusQueue[freeFocusQueue.length - 1].priority) {
                 freeFocusQueue.pop();
             } else {
@@ -354,8 +442,8 @@ function scheduleCameraFocus(options) {
 }
 
 function getAdaptiveGiftDuration(waitingCount, baseMs) {
-    if (waitingCount >= 7) return 1400;
-    if (waitingCount >= 3) return 2000;
+    if (waitingCount >= 7) return 1500;
+    if (waitingCount >= 3) return 2100;
     return baseMs;
 }
 
@@ -371,7 +459,7 @@ function processFocusQueues() {
         return;
     }
 
-    freeFocusQueue = freeFocusQueue.filter(q => now - q.createdAt < 8000);
+    freeFocusQueue = freeFocusQueue.filter(q => now - q.createdAt < 14000);
     if (freeFocusQueue.length > 0) {
         const nextFree = freeFocusQueue.shift();
         activeFocus = { ...nextFree, startedAt: now, expiresAt: now + nextFree.baseDurationMs };
@@ -421,7 +509,7 @@ function triggerProctorStrike(proctor, student, penalty, coins, actorUser, other
     proctor.y = pos.y;
     proctor.targetX = proctor.x;
     proctor.targetZ = proctor.z;
-    proctor.attackingUntil = now + 1500;
+    proctor.attackingUntil = now + 1600;
     proctor.attackTargetSeat = sIdx;
 
     // 300+ Puan İnek Öğrenci Kalkanı kontrolü
@@ -433,7 +521,7 @@ function triggerProctorStrike(proctor, student, penalty, coins, actorUser, other
 
     student.score = Math.max(0, student.score - penalty);
     student.cheatingUntil = 0;
-    student.caughtUntil = now + 2400;
+    student.caughtUntil = now + 2600;
     student.penaltyUntil = now + 4500;
     student.statusEffect = 'caught';
     student.statusUntil = now + 4500;
@@ -577,7 +665,7 @@ function seatStudent(user, skipCamera = false, notifyIfAlreadySeated = false) {
             title: `🚪 ${user.nickname} Sınıfa Girdi!`,
             subtitle: `Amfi Sıra #${chosenSeat + 1} koltuğuna yürüyor...`,
             color: '#34d399',
-            baseDurationMs: 3600
+            baseDurationMs: 3200
         });
     }
     return chosenSeat;
@@ -616,7 +704,7 @@ function removeStudentFromHall(seatIdx, reasonText = 'Yayından ayrıldı') {
         title: `👋 ${student.nickname} Sınıftan Ayrıldı`,
         subtitle: `${reasonText} • Çıkış kapısına yürüyor...`,
         color: '#94a3b8',
-        baseDurationMs: 3400
+        baseDurationMs: 3200
     });
 }
 
@@ -646,8 +734,9 @@ function promoteToProctor(user, coins) {
         existingProctor.patrolRadius = calculateProctorRadius(existingProctor.coins, gameState.panicMode);
         existingProctor.lastActiveAt = Date.now();
     } else {
+        // Gözetmen doğrudan ön sıraların (Tier 0-1) önünde doğar
         const startAngle = (Math.random() - 0.5) * 1.1;
-        const startRadius = 13 + Math.random() * 9;
+        const startRadius = 10.2 + Math.random() * 3.5;
         const newProctor = {
             userId: user.userId,
             nickname: user.nickname || user.userId,
@@ -658,10 +747,10 @@ function promoteToProctor(user, coins) {
             patrolRadius: calculateProctorRadius(coins, gameState.panicMode),
             lastActiveAt: Date.now(),
             x: Math.sin(startAngle) * startRadius,
-            y: 1.5,
+            y: 0.5,
             z: Math.cos(startAngle) * startRadius - 7,
             targetX: 0,
-            targetZ: 5,
+            targetZ: 4.5,
             catches: 0,
             attackingUntil: 0,
             attackTargetSeat: -1,
@@ -680,7 +769,7 @@ function promoteToProctor(user, coins) {
         } else if (coins === 0 && gameState.proctors.length === 0) {
             gameState.proctors = [newProctor];
             gameState.proctorRecord = 0;
-            triggerBanner('TUR BİRİNCİSİ BAŞGÖZETMEN!', `${newProctor.nickname} en yüksek puanla gözetmen oldu!`, '#38bdf8');
+            triggerBanner('TUR BİRİNCİSİ BAŞGÖZETMEN!', `${newProctor.nickname} Başgözetmen oldu • Diğerleri ön sırada!`, '#38bdf8');
         }
     }
 
@@ -695,9 +784,9 @@ function promoteToProctor(user, coins) {
             userId: user.userId,
             proctorUserId: user.userId,
             title: `👮 GÖZETMEN ${user.nickname} (${coins} Jeton)`,
-            subtitle: `Gözetleme Alanı: ${rad}m • Devriye başladı!`,
+            subtitle: `Ön Sıralar Devriyesi Aktif • Alan: ${rad}m!`,
             color: '#f59e0b',
-            baseDurationMs: 3600
+            baseDurationMs: 3500
         });
     }
 }
@@ -711,7 +800,6 @@ function handleLike(user, count = 1) {
         rl.gained = 0;
     }
 
-    // Sınıfa girmek için önce "katıl" yazmak şarttır
     const idx = findStudentByUserId(user.userId);
     if (idx === -1) {
         if (gameState.proctors.some(p => p.userId === user.userId)) {
@@ -728,7 +816,6 @@ function handleLike(user, count = 1) {
     rl.gained += allowedGain;
     likeRateLimiter.set(user.userId, rl);
 
-    // Beğeni Kombo Çarpanı (x1 - x5)
     if (now - (student.lastLikeAt || 0) < 4000) {
         student.comboCount = Math.min(5, (student.comboCount || 1) + 1);
     } else {
@@ -742,7 +829,7 @@ function handleLike(user, count = 1) {
 
     const prevFlame = student.flameLevel || 0;
     student.score += totalGain;
-    student.studyingUntil = now + 3000;
+    student.studyingUntil = now + 3200;
     syncStudentVisualTiers(student);
     updateLeaderCrown();
 
@@ -761,21 +848,23 @@ function handleLike(user, count = 1) {
     student.lastPopup = { text: popupText, color: '#4ade80', id: now + Math.random() };
 
     const lastCam = likeCamCooldown.get(user.userId) || 0;
-    if (now - lastCam > 15000 || student.flameLevel > prevFlame) {
+    const gotFlaming = student.flameLevel > prevFlame;
+
+    if (gotFlaming || now - lastCam > 14000) {
         likeCamCooldown.set(user.userId, now);
         scheduleCameraFocus({
             isGift: false,
             coins: 0,
-            priority: student.flameLevel > prevFlame ? 2 : 1,
-            type: 'study',
+            priority: gotFlaming ? 3 : 1,
+            type: gotFlaming ? 'flame' : 'study',
             userId: user.userId,
             seatIndex: idx,
-            title: student.flameLevel > prevFlame
+            title: gotFlaming
                 ? `${flameNames[student.flameLevel]} ${student.nickname}!`
                 : `📚 ${student.nickname} Ders Çalışıyor!`,
             subtitle: `Beğeni Kombo x${student.comboCount} (+${totalGain} Puan • Toplam: ${student.score})`,
-            color: '#4ade80',
-            baseDurationMs: 2400
+            color: gotFlaming ? '#f97316' : '#4ade80',
+            baseDurationMs: gotFlaming ? 2700 : 2300
         });
     }
 }
@@ -785,7 +874,8 @@ function handleGift(user, coins) {
     const now = Date.now();
     touchUserActivity(user.userId);
 
-    // Gözetmen olma veya 100+ Jeton Kader Değiştirme hediyesi
+    // 100+ Jeton: Başgözetmen + Tüm Amfide Kader Değiştirme (Genel Af / Sıkı Yönetim)
+    // veya 15+ Jeton: Rekor Gözetmenlik
     if (coins >= 100 || (coins > gameState.proctorRecord && coins >= 15) || (coins === gameState.proctorRecord && coins >= 15)) {
         promoteToProctor(user, coins);
 
@@ -794,32 +884,33 @@ function handleGift(user, coins) {
             gameState.worldEffect = {
                 id: now + Math.random(),
                 type: isAmnesty ? 'amnesty' : 'discipline',
-                expiresAt: now + 4500
+                expiresAt: now + 4800
             };
-            emitFx('thunder', { text: isAmnesty ? '🌟 GENEL AF!' : '⚡ SIKI YÖNETİM!', color: isAmnesty ? '#10b981' : '#ef4444' });
+            emitFx('thunder', { text: isAmnesty ? '🌟 GENEL AF (+75)!' : '⚡ SIKI YÖNETİM (-80)!', color: isAmnesty ? '#10b981' : '#ef4444' });
 
             gameState.seats.forEach(s => {
                 if (!s) return;
                 if (isAmnesty) {
-                    s.score += 50;
+                    s.score += 75;
                     s.statusEffect = 'cheer';
-                    s.statusUntil = now + 4000;
-                    s.lastPopup = { text: '+50 GENEL AF!', color: '#34d399', id: now + Math.random() };
+                    s.statusUntil = now + 4500;
+                    s.lastPopup = { text: '+75 GENEL AF!', color: '#34d399', id: now + Math.random() };
                 } else if (s.cheatingUntil > now) {
                     if (!tryConsumeStudentShield(s, 'Sıkı Yönetim')) {
-                        s.score = Math.max(0, s.score - 60);
+                        s.score = Math.max(0, s.score - 80);
                         s.cheatingUntil = 0;
-                        s.penaltyUntil = now + 4500;
+                        s.caughtUntil = now + 2600;
+                        s.penaltyUntil = now + 4800;
                         s.statusEffect = 'caught';
-                        s.statusUntil = now + 4000;
-                        s.lastPopup = { text: '-60 DİSİPLİN!', color: '#f87171', id: now + Math.random() };
+                        s.statusUntil = now + 4500;
+                        s.lastPopup = { text: '-80 DİSİPLİN!', color: '#f87171', id: now + Math.random() };
                     }
                 }
                 syncStudentVisualTiers(s);
             });
             updateLeaderCrown();
             triggerBanner(
-                isAmnesty ? 'KADER DEĞİŞTİ: GENEL AF!' : 'KADER DEĞİŞTİ: SIKI YÖNETİM!',
+                isAmnesty ? '🌟 KADER DEĞİŞTİ: GENEL AF (+75)!' : '⚡ KADER DEĞİŞTİ: SIKI YÖNETİM!',
                 `${user.nickname} (${coins} Jeton) tüm amfinin kaderini değiştirdi!`,
                 isAmnesty ? '#10b981' : '#ef4444'
             );
@@ -827,13 +918,13 @@ function handleGift(user, coins) {
         return;
     }
 
-    // Aktif gözetmen hediye atarsa gözetleme gücü (alanı) ve gözetmen puanı büyür!
+    // Aktif gözetmen hediye atarsa gözetleme alanı ve puanı büyür
     const activeProctor = gameState.proctors.find(p => p.userId === user.userId);
     if (activeProctor) {
         activeProctor.coins += coins;
-        activeProctor.score = (activeProctor.score || 0) + coins * 2;
+        activeProctor.score = (activeProctor.score || 0) + coins * 3;
         activeProctor.patrolRadius = calculateProctorRadius(activeProctor.coins, gameState.panicMode);
-        activeProctor.lastPopup = { text: `Alan: ${activeProctor.patrolRadius}m (+${coins * 2} Puan)`, color: '#fbbf24', id: now };
+        activeProctor.lastPopup = { text: `Alan: ${activeProctor.patrolRadius}m (+${coins * 3} Puan)`, color: '#fbbf24', id: now };
         scheduleCameraFocus({
             isGift: true,
             coins,
@@ -849,7 +940,7 @@ function handleGift(user, coins) {
         return;
     }
 
-    // Sınıfa girmek için önce sohbete "katıl" yazmak şarttır
+    // Sınıfa girmek için önce "katıl" yazmak şarttır
     const idx = findStudentByUserId(user.userId);
     if (idx === -1) {
         const lastRem = reminderCooldown.get(user.userId) || 0;
@@ -865,26 +956,27 @@ function handleGift(user, coins) {
     const occupied = gameState.seats.filter(s => s && s.userId !== user.userId);
     const panicMult = gameState.panicMode ? 2 : 1;
 
-    // 50+ Jeton: Cevap Anahtarı + Yıldırım Saldırısı
+    // 50+ Jeton: Cevap Anahtarı + Yıldırım Saldırısı (+150 Puan + 5 Rakibe -35)
     if (coins >= 50) {
-        const gain = 120 * panicMult;
+        const gain = 150 * panicMult;
         actor.score += gain;
         actor.statusEffect = 'answer_key';
-        actor.statusUntil = now + 4500;
-        actor.lastPopup = { text: `+${gain} CEVAP ANAHTARI!`, color: '#fbbf24', id: now };
+        actor.statusUntil = now + 4800;
+        actor.lastPopup = { text: `🔑 +${gain} CEVAP ANAHTARI!`, color: '#fbbf24', id: now };
         syncStudentVisualTiers(actor);
         emitFx('thunder', { seatIndex: idx, text: `🔑 +${gain} CEVAP ANAHTARI!`, color: '#fbbf24' });
 
         const victims = occupied.sort(() => 0.5 - Math.random()).slice(0, 5);
         victims.forEach(v => {
             if (!tryConsumeStudentShield(v, 'Cevap Anahtarı Saldırısı')) {
-                v.score = Math.max(0, v.score - 25);
+                v.score = Math.max(0, v.score - 35);
+                v.caughtUntil = now + 2400;
                 v.penaltyUntil = now + 4500;
                 v.statusEffect = 'burned';
                 v.statusUntil = now + 4500;
-                v.lastPopup = { text: '-25 Kağıt Yandı!', color: '#f87171', id: now + Math.random() };
+                v.lastPopup = { text: '🔥 -35 Kağıt Yandı!', color: '#f87171', id: now + Math.random() };
                 syncStudentVisualTiers(v);
-                emitFx('whack', { seatIndex: v.seatIndex, text: '-25 YANDI!', color: '#f87171' });
+                emitFx('whack', { seatIndex: v.seatIndex, text: '-35 YANDI!', color: '#f87171' });
             }
         });
         updateLeaderCrown();
@@ -896,9 +988,37 @@ function handleGift(user, coins) {
             userId: user.userId,
             seatIndex: idx,
             title: `🔑 ${actor.nickname} (${coins} Jeton)`,
-            subtitle: `Cevap anahtarını ele geçirdi (+${gain}) ve 5 rakibi yaktı!`,
+            subtitle: `Cevap anahtarını kaptı (+${gain}) ve 5 rakibi yaktı!`,
             color: '#fbbf24',
             baseDurationMs: 3400
+        });
+        return;
+    }
+
+    // 30+ Jeton: Süper Alev & Koruma Kalkanı (+80 Puan + Anında Alev + Kalkan)
+    if (coins >= 30) {
+        const gain = 80 * panicMult;
+        actor.score += gain;
+        actor.studyingUntil = now + 5000;
+        actor.shield = true;
+        syncStudentVisualTiers(actor);
+        if (actor.flameLevel < 2) actor.flameLevel = 2;
+        actor.lastPopup = { text: `🔥🛡️ +${gain} SÜPER ALEV!`, color: '#f97316', id: now };
+        emitFx('flame_up', { seatIndex: idx, text: `🔥🛡️ +${gain} SÜPER ALEV!`, color: '#f97316', level: actor.flameLevel });
+        emitFx('shield_gain', { seatIndex: idx, text: '🛡️ KALKAN AKTİF!', color: '#38bdf8' });
+        updateLeaderCrown();
+
+        scheduleCameraFocus({
+            isGift: true,
+            coins,
+            priority: 4,
+            type: 'flame',
+            userId: user.userId,
+            seatIndex: idx,
+            title: `🔥🛡️ ${actor.nickname} SÜPER ALEV ALDI!`,
+            subtitle: `+${gain} Puan + Koruma Kalkanı kazandı!`,
+            color: '#f97316',
+            baseDurationMs: 3200
         });
         return;
     }
@@ -911,28 +1031,28 @@ function handleGift(user, coins) {
             : occupied.sort((a, b) => b.score - a.score)[0];
 
         const isRevenge = target ? checkAndConsumeRevenge(actor, target) : false;
-        const reward = (isRevenge ? 50 : 25) * panicMult;
+        const reward = (isRevenge ? 70 : 35) * panicMult;
 
         actor.score += reward;
         actor.statusEffect = 'snitch';
-        actor.statusUntil = now + 3500;
-        actor.lastPopup = { text: isRevenge ? `⚔️ +${reward} İNTİKAM!` : `+${reward} İspiyon Ödülü`, color: '#38bdf8', id: now };
+        actor.statusUntil = now + 3800;
+        actor.lastPopup = { text: isRevenge ? `⚔️ +${reward} İNTİKAM!` : `📣 +${reward} İspiyon!`, color: '#38bdf8', id: now };
         syncStudentVisualTiers(actor);
 
         if (target) {
             addOrRefreshRivalry(actor, target);
-            const penalty = (cheaters.length > 0 ? 45 : 25) * (isRevenge ? 2 : 1);
+            const penalty = (cheaters.length > 0 ? 55 : 35) * (isRevenge ? 2 : 1);
 
             if (gameState.proctors.length > 0) {
                 triggerProctorStrike(gameState.proctors[0], target, penalty, coins, user, idx);
             } else if (!tryConsumeStudentShield(target, 'İspiyon')) {
                 target.score = Math.max(0, target.score - penalty);
                 target.cheatingUntil = 0;
-                target.caughtUntil = now + 2200;
+                target.caughtUntil = now + 2500;
                 target.penaltyUntil = now + 4500;
                 target.statusEffect = 'caught';
                 target.statusUntil = now + 4500;
-                target.lastPopup = { text: `-${penalty} İSPİYONLANDI!`, color: '#ef4444', id: now };
+                target.lastPopup = { text: `🚨 -${penalty} İSPİYONLANDI!`, color: '#ef4444', id: now };
                 syncStudentVisualTiers(target);
                 emitFx('whack', { seatIndex: target.seatIndex, text: `-${penalty} İSPİYON!`, color: '#ef4444' });
 
@@ -973,6 +1093,8 @@ function handleGift(user, coins) {
         const victim = findNearestNeighborSeat(idx);
         if (victim) {
             actor.cheatingUntil = now + 5000;
+            actor.statusEffect = 'sabotage';
+            actor.statusUntil = now + 4000;
             victim.cheatingUntil = now + 5000;
 
             gameState.cheatPasses.push({
@@ -987,21 +1109,22 @@ function handleGift(user, coins) {
             if (!caught) {
                 addOrRefreshRivalry(actor, victim);
                 const isRevenge = checkAndConsumeRevenge(actor, victim);
-                const dmg = isRevenge ? 40 : 20;
-                const gain = (isRevenge ? 25 : 10) * panicMult;
+                const dmg = isRevenge ? 50 : 30;
+                const gain = (isRevenge ? 40 : 20) * panicMult;
 
                 if (!tryConsumeStudentShield(victim, 'Yanlış Kopya Sabotajı')) {
                     victim.score = Math.max(0, victim.score - dmg);
+                    victim.caughtUntil = now + 2000;
                     victim.penaltyUntil = now + 4500;
                     victim.statusEffect = 'wrong_cheat';
                     victim.statusUntil = now + 4500;
-                    victim.lastPopup = { text: `-${dmg} Yanlış Kopya!`, color: '#fb7185', id: now };
+                    victim.lastPopup = { text: `😈 -${dmg} Yanlış Kopya!`, color: '#fb7185', id: now };
                     syncStudentVisualTiers(victim);
                     emitFx('whack', { seatIndex: victim.seatIndex, text: `-${dmg} SABOTAJ!`, color: '#fb7185' });
                 }
 
                 actor.score += gain;
-                actor.lastPopup = { text: isRevenge ? `⚔️ +${gain} İNTİKAM!` : `+${gain} Sabotaj`, color: '#fb7185', id: now };
+                actor.lastPopup = { text: isRevenge ? `⚔️ +${gain} İNTİKAM!` : `😈 +${gain} Sabotaj`, color: '#fb7185', id: now };
                 syncStudentVisualTiers(actor);
                 updateLeaderCrown();
 
@@ -1020,7 +1143,7 @@ function handleGift(user, coins) {
                 });
             }
         } else {
-            const gain = 15 * panicMult;
+            const gain = 25 * panicMult;
             actor.score += gain;
             syncStudentVisualTiers(actor);
             updateLeaderCrown();
@@ -1045,7 +1168,6 @@ function handleGift(user, coins) {
     actor.cheatingUntil = now + 6000;
     actor.cheatTargetSeat = neighbor ? neighbor.seatIndex : -1;
 
-    // Kopya Zinciri Güncelle (6 saniye içinde peş peşe kopya çekilirse x2, x3, x4...)
     if (now - (gameState.cheatChain.lastAt || 0) < 6500) {
         gameState.cheatChain.count = Math.min(6, (gameState.cheatChain.count || 1) + 1);
         if (!gameState.cheatChain.seatIndices.includes(idx)) {
@@ -1070,16 +1192,16 @@ function handleGift(user, coins) {
     const caught = checkProctorProximityPenalty(neighbor ? neighbor.seatIndex : -1, idx, user, coins, false);
     if (!caught) {
         const chainMult = gameState.cheatChain.count >= 2 ? (1 + (gameState.cheatChain.count - 1) * 0.25) : 1;
-        const gain = Math.round(20 * panicMult * chainMult);
+        const gain = Math.round(25 * panicMult * chainMult);
         actor.score += gain;
         const chainTag = gameState.cheatChain.count >= 2 ? ` ⚡ZİNCİR x${gameState.cheatChain.count}!` : '';
-        actor.lastPopup = { text: `+${gain} Kopya${chainTag}`, color: '#facc15', id: now };
+        actor.lastPopup = { text: `👀 +${gain} Kopya${chainTag}`, color: '#facc15', id: now };
         syncStudentVisualTiers(actor);
         emitFx('combo', { seatIndex: idx, combo: gameState.cheatChain.count, text: `+${gain}${chainTag}`, color: '#facc15' });
 
         if (neighbor) {
-            neighbor.score += 5 * panicMult;
-            neighbor.lastPopup = { text: `+${5 * panicMult} Kopya Verdi!`, color: '#fde047', id: now + 0.1 };
+            neighbor.score += 8 * panicMult;
+            neighbor.lastPopup = { text: `+${8 * panicMult} Kopya Verdi!`, color: '#fde047', id: now + 0.1 };
             syncStudentVisualTiers(neighbor);
         }
         updateLeaderCrown();
@@ -1121,7 +1243,7 @@ setInterval(() => {
     });
 }, 200);
 
-// 1 Saniyelik Ana Oyun Döngüsü (Son 30sn Panik Modu + Mezuniyet Podyumu)
+// 1 Saniyelik Ana Oyun Döngüsü (Son 30sn Panik Modu + Mezuniyet Podyumu + Ön Sıra Yerleşimi)
 let passiveTick = 0;
 setInterval(() => {
     const now = Date.now();
@@ -1139,11 +1261,15 @@ setInterval(() => {
         gameState.worldEffect = null;
     }
 
-    // FAZ 1: MEZUNİYET PODYUMU (Tur sonu ilk 3 kürsüde kutlanır)
+    // FAZ 1: MEZUNİYET PODYUMU -> YENİ TUR BAŞLANGICI
     if (gameState.phase === 'podium') {
         gameState.timeLeft -= 1;
         if (gameState.timeLeft <= 0) {
-            const topWinner = gameState.podiumWinners[0];
+            // Tüm aktif öğrencileri puana göre sırala: 1. Gözetmen olur, diğerleri EN ÖN SIRALARA oturur!
+            const rankedStudents = gameState.seats.filter(Boolean).sort((a, b) => b.score - a.score);
+            const topWinner = rankedStudents[0] || gameState.podiumWinners[0];
+            const remainingStudents = rankedStudents.filter(s => !topWinner || s.userId !== topWinner.userId);
+
             gameState.phase = 'playing';
             gameState.round += 1;
             gameState.timeLeft = ROUND_DURATION;
@@ -1152,20 +1278,24 @@ setInterval(() => {
             gameState.proctorRecord = 0;
             gameState.podiumWinners = [];
             gameState.rivalries = [];
+            gameState.seats = Array(MAX_SEATS).fill(null);
 
-            gameState.seats.forEach(s => {
-                if (s) {
-                    s.score = 10;
-                    s.cheatingUntil = 0;
-                    s.caughtUntil = 0;
-                    s.penaltyUntil = 0;
-                    s.shield = false;
-                    s.lastShieldMilestone = 0;
-                    s.isLeader = false;
-                    s.comboCount = 0;
-                    s.statusEffect = null;
-                    syncStudentVisualTiers(s);
-                }
+            // Kalan öğrencileri 0. indeksten (Tier 0 = En Ön Sıra, sonra Tier 1...) başlayarak yerleştir
+            remainingStudents.forEach((s, frontSeatIdx) => {
+                if (frontSeatIdx >= MAX_SEATS) return;
+                s.seatIndex = frontSeatIdx;
+                s.score = 10;
+                s.cheatingUntil = 0;
+                s.caughtUntil = 0;
+                s.penaltyUntil = 0;
+                s.shield = false;
+                s.lastShieldMilestone = 0;
+                s.isLeader = false;
+                s.comboCount = 0;
+                s.statusEffect = null;
+                s.lastPopup = { text: `⭐ Ön Sıra #${frontSeatIdx + 1}`, color: '#38bdf8', id: now + frontSeatIdx };
+                syncStudentVisualTiers(s);
+                gameState.seats[frontSeatIdx] = s;
             });
 
             if (topWinner) {
@@ -1190,17 +1320,21 @@ setInterval(() => {
         triggerBanner('🚨 SON 30 SANİYE PANİK MODU!', 'Tüm puanlar 2x • Gözetmen alanı %30 büyüdü!', '#ef4444');
     }
 
-    // Gözetmen devriye hareketi ve her 10 saniyede +2 devriye puanı
+    // Gözetmen Devriye Hareketi: Ön sıraları (Tier 0-2) %78 ağırlıkla daha sık gezer!
     gameState.proctors.forEach(proctor => {
         proctor.patrolRadius = calculateProctorRadius(proctor.coins, gameState.panicMode);
         if (passiveTick % 10 === 0) {
             proctor.score = (proctor.score || 0) + (gameState.panicMode ? 4 : 2);
         }
-        const moveProb = gameState.panicMode ? 0.55 : 0.32;
-        const lerpSpeed = gameState.panicMode ? 0.34 : 0.22;
+        const moveProb = gameState.panicMode ? 0.62 : 0.42;
+        const lerpSpeed = gameState.panicMode ? 0.36 : 0.25;
         if (now > (proctor.attackingUntil || 0) && Math.random() < moveProb) {
-            const angle = (Math.random() - 0.5) * 1.3;
-            const radius = 10.5 + Math.random() * 20;
+            const angle = (Math.random() - 0.5) * 1.45;
+            // %78 ihtimalle ön sıralarda (Tier 0-2: radius 9.8 - 16.5), %22 orta/arka sıralarda
+            const patrolFront = Math.random() < 0.78;
+            const radius = patrolFront
+                ? (9.8 + Math.random() * 6.7)
+                : (16.5 + Math.random() * 11.5);
             proctor.targetX = Math.sin(angle) * radius;
             proctor.targetZ = Math.cos(angle) * radius - 7;
         }
@@ -1229,7 +1363,7 @@ setInterval(() => {
             emitFx('podium_fanfare', { text: `🏆 TUR #${gameState.round} ŞAMPİYONU: ${activeStudents[0].nickname}!`, color: '#fbbf24' });
             triggerBanner(
                 `🏆 TUR #${gameState.round} MEZUNİYET PODYUMU!`,
-                `1. ${activeStudents[0].nickname} (${activeStudents[0].score} Puan) Başgözetmen Oluyor!`,
+                `1. ${activeStudents[0].nickname} Başgözetmen Oluyor • Diğerleri Ön Sıraya Geçiyor!`,
                 '#fbbf24'
             );
         } else {
@@ -1425,19 +1559,21 @@ io.on('connection', socket => {
     socket.on('connect_tiktok', username => connectToTikTok(username));
 
     socket.on('sim_event', payload => {
-        const randomNum = Math.floor(100 + Math.random() * 900);
-        const testUser = {
-            userId: payload.userId || `ogrenci_${randomNum}`,
-            nickname: payload.nickname || `Öğrenci_${randomNum}`,
-            avatar: ''
-        };
-
         if (payload.type === 'join') {
-            seatStudent(testUser);
+            const botName = payload.nickname || pickUniqueBotName();
+            seatStudent({
+                userId: payload.userId || `bot_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+                nickname: botName,
+                avatar: ''
+            });
         } else if (payload.type === 'fill_20') {
             for (let i = 0; i < 20; i++) {
-                const n = Math.floor(100 + Math.random() * 900);
-                seatStudent({ userId: `bot_${n}_${i}`, nickname: `Aday_${n}`, avatar: '' }, i > 0);
+                const botName = pickUniqueBotName();
+                seatStudent({
+                    userId: `bot_${Date.now()}_${i}_${Math.random().toString(36).slice(2, 6)}`,
+                    nickname: botName,
+                    avatar: ''
+                }, i > 0);
             }
         } else if (payload.type === 'leave_one') {
             const seated = gameState.seats.filter(Boolean);
@@ -1453,19 +1589,39 @@ io.on('connection', socket => {
         } else if (payload.type === 'boost_flame') {
             const seated = gameState.seats.filter(Boolean);
             if (seated.length > 0) {
-                const target = seated[Math.floor(Math.random() * seated.length)];
-                handleLike(target, 15);
-                target.score += 110;
+                // Henüz alev almamış olanları önceliklendir ki sırayla alevlenmeleri görülsün
+                const pool = seated.filter(s => (s.flameLevel || 0) === 0);
+                const list = pool.length > 0 ? pool : seated;
+                const target = list[Math.floor(Math.random() * list.length)];
+                target.score += 55;
+                target.studyingUntil = Date.now() + 4000;
                 syncStudentVisualTiers(target);
                 updateLeaderCrown();
-                target.lastPopup = { text: `🔥 +125 Süper Çalışma!`, color: '#f97316', id: Date.now() };
-                emitFx('flame_up', { seatIndex: target.seatIndex, text: '🔥 ALEV YÜKSELDİ!', color: '#f97316' });
+                target.lastPopup = { text: `🔥 +55 ALEV ALDI!`, color: '#f97316', id: Date.now() + Math.random() };
+                emitFx('flame_up', { seatIndex: target.seatIndex, text: '🔥 ALEV ALDI!', color: '#f97316' });
+                scheduleCameraFocus({
+                    isGift: false,
+                    coins: 0,
+                    priority: 3,
+                    type: 'flame',
+                    userId: target.userId,
+                    seatIndex: target.seatIndex,
+                    title: `🔥 ${target.nickname} ALEV ALDI!`,
+                    subtitle: `Sıra #${target.seatIndex + 1} • Puan: ${target.score}`,
+                    color: '#f97316',
+                    baseDurationMs: 2600
+                });
             }
         } else if (payload.type === 'gift') {
             const seated = gameState.seats.filter(Boolean);
+            const fallbackUser = {
+                userId: `bot_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+                nickname: pickUniqueBotName(),
+                avatar: ''
+            };
             const actor = (payload.coins < 15 && seated.length > 0)
                 ? seated[Math.floor(Math.random() * seated.length)]
-                : testUser;
+                : fallbackUser;
             handleGift(actor, payload.coins);
         } else if (payload.type === 'cheat_chain') {
             const seated = gameState.seats.filter(Boolean);
