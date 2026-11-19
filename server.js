@@ -8,7 +8,6 @@ if (tiktokLib.SignConfig && process.env.SIGN_API_KEY) {
     tiktokLib.SignConfig.apiKey = process.env.SIGN_API_KEY.trim();
 }
 
-// Hem eski (WebcastPushConnection) hem yeni (TikTokLiveConnection) sürüm uyumluluğu
 const TikTokConnectorClass =
     tiktokLib.TikTokLiveConnection ||
     tiktokLib.WebcastPushConnection ||
@@ -23,9 +22,8 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 const MAX_SEATS = 250;
 const ROUND_DURATION = 240; // 4 dakika
-const INACTIVITY_TIMEOUT_MS = 180000; // 3 dakika etkileşimsiz kalan yayından ayrılmış sayılır (1 dk için 60000 yapın)
 
-// 250 Kişilik Basamaklı Yarım Daire Amfi Koordinatları (8 Kademe)
+// 9:16 Dikey Telefon Kadrajına Tam Sığan 250 Kişilik 8 Kademeli Amfi Düzeni
 const TIER_COUNTS = [20, 24, 28, 31, 34, 36, 38, 39];
 const SEAT_LAYOUT = [];
 
@@ -33,17 +31,17 @@ const SEAT_LAYOUT = [];
     let idx = 0;
     for (let tier = 0; tier < TIER_COUNTS.length; tier++) {
         const count = TIER_COUNTS[tier];
-        const radius = 11.5 + tier * 3.5;
-        const y = 0.4 + tier * 0.72;
-        const maxAngle = Math.PI * 0.43;
+        const radius = 10.5 + tier * 2.95;
+        const y = 0.35 + tier * 0.78;
+        const maxAngle = Math.PI * 0.35;
 
         for (let i = 0; i < count; i++) {
             const t = count === 1 ? 0.5 : i / (count - 1);
             let angle = -maxAngle + t * (maxAngle * 2);
-            if (angle > -0.06 && angle < 0.06) angle += (angle >= 0 ? 0.05 : -0.05);
+            if (angle > -0.055 && angle < 0.055) angle += (angle >= 0 ? 0.045 : -0.045);
 
             const x = Math.sin(angle) * radius;
-            const z = Math.cos(angle) * radius - 6;
+            const z = Math.cos(angle) * radius - 7;
             SEAT_LAYOUT.push({
                 index: idx++,
                 tier,
@@ -69,7 +67,13 @@ let freeFocusQueue = [];
 const likeRateLimiter = new Map();
 const likeCamCooldown = new Map();
 const alreadySeatedCamCooldown = new Map();
+const reminderCooldown = new Map();
 const seenChatIds = new Set();
+
+// Gerçek yayın çıkış tespiti için izleyici listesi takibi
+const seenInRoomUsers = new Set();
+const missingRoomUserStrikes = new Map();
+let lastKnownViewerCount = 0;
 
 let gameState = {
     round: 1,
@@ -84,6 +88,32 @@ let gameState = {
     cheatPasses: [],
     worldEffect: null
 };
+
+function calculateProctorRadius(coins) {
+    const c = Math.max(0, Number(coins) || 0);
+    return Number(Math.min(16.5, 7.2 + Math.sqrt(c) * 0.65).toFixed(2));
+}
+
+function getFlameLevel(score) {
+    if (score >= 750) return 5; // Beyaz-Altın Süpernova Alevi
+    if (score >= 450) return 4; // Mor Kozmik Alev
+    if (score >= 250) return 3; // Mavi Plazma Alevi
+    if (score >= 120) return 2; // Kızıl-Turuncu Güçlü Alev
+    if (score >= 50) return 1;  // Turuncu-Sarı Başlangıç Alevi
+    return 0;
+}
+
+function getPenaltyLevel(score) {
+    if (score <= 0) return 2;  // Sıfır Puan (Kaldı / Kara Duman)
+    if (score < 10) return 1;  // Tehlike Bölgesi (Stres Bulutu)
+    return 0;
+}
+
+function syncStudentVisualTiers(student) {
+    if (!student) return;
+    student.flameLevel = getFlameLevel(student.score);
+    student.penaltyLevel = getPenaltyLevel(student.score);
+}
 
 function pickValidId(...candidates) {
     for (const c of candidates) {
@@ -131,6 +161,7 @@ function findStudentByUserId(userId) {
 }
 
 function touchUserActivity(userId) {
+    missingRoomUserStrikes.delete(userId);
     const idx = findStudentByUserId(userId);
     if (idx !== -1 && gameState.seats[idx]) {
         gameState.seats[idx].lastActiveAt = Date.now();
@@ -266,61 +297,86 @@ function triggerBanner(title, subtitle, color = '#f59e0b') {
     };
 }
 
-function findNearestNeighborSeat(actorSeatIdx, actorScore) {
+// Her zaman fiziksel olarak EN YAKINDAKİ komşu öğrenciyi bulur
+function findNearestNeighborSeat(actorSeatIdx) {
     const posA = SEAT_LAYOUT[actorSeatIdx];
-    const candidates = [];
+    let nearestStudent = null;
+    let minDist = Infinity;
 
     for (let i = 0; i < MAX_SEATS; i++) {
         if (i === actorSeatIdx || !gameState.seats[i]) continue;
         const posB = SEAT_LAYOUT[i];
         const dist = Math.hypot(posA.x - posB.x, posA.y - posB.y, posA.z - posB.z);
-        candidates.push({ student: gameState.seats[i], dist });
+        if (dist < minDist) {
+            minDist = dist;
+            nearestStudent = gameState.seats[i];
+        }
     }
 
-    if (candidates.length === 0) return null;
-    candidates.sort((a, b) => a.dist - b.dist);
+    return nearestStudent;
+}
 
-    const closestFour = candidates.slice(0, 4);
-    const higherInNeighborhood = closestFour.find(c => c.student.score > actorScore);
-    return higherInNeighborhood ? higherInNeighborhood.student : closestFour[0].student;
+function triggerProctorStrike(proctor, student, penalty, coins, actorUser, otherSeatIdx = -1) {
+    const now = Date.now();
+    const sIdx = student.seatIndex;
+    const pos = SEAT_LAYOUT[sIdx];
+
+    student.score = Math.max(0, student.score - penalty);
+    student.cheatingUntil = 0;
+    student.caughtUntil = now + 2400;
+    student.penaltyUntil = now + 4500;
+    student.statusEffect = 'caught';
+    student.statusUntil = now + 4500;
+    student.lastPopup = { text: `💥 -${penalty} YAKALANDI!`, color: '#ef4444', id: now + Math.random() };
+    syncStudentVisualTiers(student);
+
+    // Gözetmen sıranın hemen yanına atılır, cetvelle vurur ve Gözetmen Puanı kazanır
+    proctor.x = pos.x + (pos.x >= 0 ? -1.15 : 1.15);
+    proctor.z = pos.z + 0.85;
+    proctor.y = pos.y;
+    proctor.targetX = proctor.x;
+    proctor.targetZ = proctor.z;
+    proctor.catches += 1;
+    proctor.score = (proctor.score || 0) + 35;
+    proctor.attackingUntil = now + 1500;
+    proctor.attackTargetSeat = sIdx;
+    proctor.lastPopup = { text: `+35 Gözetmen Puanı!`, color: '#fbbf24', id: now + Math.random() };
+
+    scheduleCameraFocus({
+        isGift: coins > 0,
+        coins,
+        priority: 4,
+        type: 'caught',
+        userId: actorUser ? actorUser.userId : student.userId,
+        seatIndex: sIdx,
+        targetSeatIndex: otherSeatIdx,
+        proctorUserId: proctor.userId,
+        title: `🚨 GÖZETMEN ${proctor.nickname} CETVELLE YAKALADI!`,
+        subtitle: `${student.nickname} (-${penalty} Puan) • ${proctor.nickname} +35 Gözetmen Puanı!`,
+        color: '#ef4444',
+        baseDurationMs: 3200
+    });
 }
 
 function checkProctorProximityPenalty(giverSeatIdx, receiverSeatIdx, actorUser, coins, isSabotage = false) {
     if (gameState.proctors.length === 0) return false;
-    const now = Date.now();
     const targets = [giverSeatIdx, receiverSeatIdx].filter(i => i >= 0 && gameState.seats[i]);
 
     let anyoneCaught = false;
     for (const proctor of gameState.proctors) {
+        const radius = proctor.patrolRadius || calculateProctorRadius(proctor.coins);
         for (const sIdx of targets) {
             const student = gameState.seats[sIdx];
             if (!student) continue;
             const pos = SEAT_LAYOUT[sIdx];
-            const dist = Math.hypot(proctor.x - pos.x, (proctor.y - pos.y) * 1.4, proctor.z - pos.z);
+            const dist = Math.hypot(proctor.x - pos.x, (proctor.y - pos.y) * 1.35, proctor.z - pos.z);
 
-            if (dist < 9.2) {
+            if (dist <= radius) {
                 const penalty = isSabotage ? 35 : 45;
-                student.score = Math.max(0, student.score - penalty);
-                student.cheatingUntil = 0;
-                student.statusEffect = 'caught';
-                student.statusUntil = now + 4500;
-                student.lastPopup = { text: `-${penalty} YAKALANDI!`, color: '#ef4444', id: now + Math.random() };
-                proctor.catches += 1;
+                const otherIdx = giverSeatIdx === sIdx ? receiverSeatIdx : giverSeatIdx;
+                triggerProctorStrike(proctor, student, penalty, coins, actorUser, otherIdx);
                 anyoneCaught = true;
-
-                scheduleCameraFocus({
-                    isGift: true,
-                    coins,
-                    priority: 3,
-                    type: 'caught',
-                    userId: actorUser.userId,
-                    seatIndex: sIdx,
-                    targetSeatIndex: giverSeatIdx === sIdx ? receiverSeatIdx : giverSeatIdx,
-                    title: `🚨 GÖZETMEN ${proctor.nickname} YAKALADI!`,
-                    subtitle: `${student.nickname} (${coins} Jeton) gözetmen yanındayken yakalandı (-${penalty})!`,
-                    color: '#ef4444',
-                    baseDurationMs: 3000
-                });
+                break;
             }
         }
     }
@@ -331,7 +387,6 @@ function seatStudent(user, skipCamera = false, notifyIfAlreadySeated = false) {
     const existingIdx = findStudentByUserId(user.userId);
     if (existingIdx !== -1) {
         touchUserActivity(user.userId);
-        console.log(`[OYUN] ${user.nickname} (ID: ${user.userId}) zaten Sıra #${existingIdx + 1} koltuğunda.`);
         if (notifyIfAlreadySeated && !skipCamera) {
             const now = Date.now();
             const lastNotify = alreadySeatedCamCooldown.get(user.userId) || 0;
@@ -345,9 +400,9 @@ function seatStudent(user, skipCamera = false, notifyIfAlreadySeated = false) {
                     userId: user.userId,
                     seatIndex: existingIdx,
                     title: `👋 ${user.nickname} Zaten Sınıfta!`,
-                    subtitle: `Amfi Sıra #${existingIdx + 1} koltuğunda oturuyor (${gameState.seats[existingIdx].score} Puan)`,
+                    subtitle: `Amfi Sıra #${existingIdx + 1} koltuğunda (${gameState.seats[existingIdx].score} Puan)`,
                     color: '#38bdf8',
-                    baseDurationMs: 2800
+                    baseDurationMs: 2600
                 });
             }
         }
@@ -366,25 +421,31 @@ function seatStudent(user, skipCamera = false, notifyIfAlreadySeated = false) {
 
     const chosenSeat = emptyIndices[Math.floor(Math.random() * emptyIndices.length)];
     const now = Date.now();
-    gameState.seats[chosenSeat] = {
+    const newStudent = {
         seatIndex: chosenSeat,
         userId: user.userId,
         nickname: user.nickname || user.userId,
         avatar: user.avatar || '',
         color: getRandomAvatarColor(user.userId),
         score: 10,
+        flameLevel: 0,
+        penaltyLevel: 0,
         joinedAt: now,
         lastActiveAt: now,
         studyingUntil: 0,
         cheatingUntil: 0,
         cheatTargetSeat: -1,
+        caughtUntil: 0,
+        penaltyUntil: 0,
         statusEffect: null,
         statusUntil: 0,
         lastPopup: { text: '+10 Sınıfa Girdi', color: '#34d399', id: now }
     };
+    syncStudentVisualTiers(newStudent);
+    gameState.seats[chosenSeat] = newStudent;
 
     const occupiedCount = gameState.seats.filter(Boolean).length;
-    console.log(`[OYUN] + ${user.nickname} (ID: ${user.userId}) Sıra #${chosenSeat + 1} koltuğuna oturdu! (Toplam: ${occupiedCount}/250)`);
+    console.log(`[OYUN] + ${user.nickname} Sıra #${chosenSeat + 1} koltuğuna oturdu! (Toplam: ${occupiedCount}/250)`);
 
     if (!skipCamera) {
         scheduleCameraFocus({
@@ -397,7 +458,7 @@ function seatStudent(user, skipCamera = false, notifyIfAlreadySeated = false) {
             title: `🚪 ${user.nickname} Sınıfa Girdi!`,
             subtitle: `Amfi Sıra #${chosenSeat + 1} koltuğuna yürüyor...`,
             color: '#34d399',
-            baseDurationMs: 3800
+            baseDurationMs: 3600
         });
     }
     return chosenSeat;
@@ -409,6 +470,8 @@ function removeStudentFromHall(seatIdx, reasonText = 'Yayından ayrıldı') {
 
     const now = Date.now();
     gameState.seats[seatIdx] = null;
+    seenInRoomUsers.delete(student.userId);
+    missingRoomUserStrikes.delete(student.userId);
     console.log(`[OYUN] - ${student.nickname} Sıra #${seatIdx + 1} koltuğundan ayrıldı (${reasonText}).`);
 
     gameState.exitingStudents.push({
@@ -433,34 +496,55 @@ function removeStudentFromHall(seatIdx, reasonText = 'Yayından ayrıldı') {
         title: `👋 ${student.nickname} Sınıftan Ayrıldı`,
         subtitle: `${reasonText} • Çıkış kapısına yürüyor...`,
         color: '#94a3b8',
-        baseDurationMs: 3600
+        baseDurationMs: 3400
     });
+}
+
+function removeUserCompletely(userId, reasonText = 'Yayından ayrıldı') {
+    const seatIdx = findStudentByUserId(userId);
+    if (seatIdx !== -1) {
+        removeStudentFromHall(seatIdx, reasonText);
+    }
+    const pIdx = gameState.proctors.findIndex(p => p.userId === userId);
+    if (pIdx !== -1) {
+        const p = gameState.proctors[pIdx];
+        gameState.proctors.splice(pIdx, 1);
+        if (gameState.proctors.length === 0) gameState.proctorRecord = 0;
+        triggerBanner('GÖZETMEN AYRILDI', `${p.nickname} (${reasonText})`, '#94a3b8');
+    }
 }
 
 function promoteToProctor(user, coins) {
     const seatIdx = findStudentByUserId(user.userId);
+    const carriedScore = seatIdx !== -1 && gameState.seats[seatIdx] ? gameState.seats[seatIdx].score : 20;
     if (seatIdx !== -1) gameState.seats[seatIdx] = null;
 
     const existingProctor = gameState.proctors.find(p => p.userId === user.userId);
     if (existingProctor) {
         existingProctor.coins = Math.max(existingProctor.coins, coins);
+        existingProctor.patrolRadius = calculateProctorRadius(existingProctor.coins);
         existingProctor.lastActiveAt = Date.now();
     } else {
         const startAngle = (Math.random() - 0.5) * 1.1;
-        const startRadius = 14 + Math.random() * 10;
+        const startRadius = 13 + Math.random() * 9;
         const newProctor = {
             userId: user.userId,
             nickname: user.nickname || user.userId,
             avatar: user.avatar || '',
             color: getRandomAvatarColor(user.userId),
             coins,
+            score: carriedScore,
+            patrolRadius: calculateProctorRadius(coins),
             lastActiveAt: Date.now(),
             x: Math.sin(startAngle) * startRadius,
             y: 1.5,
-            z: Math.cos(startAngle) * startRadius - 6,
+            z: Math.cos(startAngle) * startRadius - 7,
             targetX: 0,
-            targetZ: 6,
-            catches: 0
+            targetZ: 5,
+            catches: 0,
+            attackingUntil: 0,
+            attackTargetSeat: -1,
+            lastPopup: null
         };
 
         if (coins > gameState.proctorRecord) {
@@ -468,7 +552,7 @@ function promoteToProctor(user, coins) {
             gameState.proctors = [newProctor];
             gameState.proctorRecord = coins;
             const extraMsg = retiredNames ? ` (${retiredNames} emekli oldu!)` : '';
-            triggerBanner('YENİ GÖZETMEN ATANDI!', `${newProctor.nickname} (${coins} Jeton) amfide devriyeye çıktı${extraMsg}`, '#f59e0b');
+            triggerBanner('YENİ GÖZETMEN ATANDI!', `${newProctor.nickname} (${coins} Jeton • Alan: ${newProctor.patrolRadius}m)${extraMsg}`, '#f59e0b');
         } else if (coins === gameState.proctorRecord && coins > 0) {
             gameState.proctors.push(newProctor);
             triggerBanner('GÖZETMEN SAYISI ARTTI!', `${newProctor.nickname} eşit jetonla (${coins}) devriyeye katıldı!`, '#fbbf24');
@@ -480,6 +564,8 @@ function promoteToProctor(user, coins) {
     }
 
     if (coins > 0) {
+        const pObj = gameState.proctors.find(p => p.userId === user.userId);
+        const rad = pObj ? pObj.patrolRadius : calculateProctorRadius(coins);
         scheduleCameraFocus({
             isGift: true,
             coins,
@@ -488,7 +574,7 @@ function promoteToProctor(user, coins) {
             userId: user.userId,
             proctorUserId: user.userId,
             title: `👮 GÖZETMEN ${user.nickname} (${coins} Jeton)`,
-            subtitle: `Amfi düzeni artık ${user.nickname} kontrolünde!`,
+            subtitle: `Gözetleme Alanı: ${rad}m • Devriye başladı!`,
             color: '#f59e0b',
             baseDurationMs: 3600
         });
@@ -503,14 +589,13 @@ function handleLike(user, count = 1) {
         rl.gained = 0;
     }
 
-    let idx = findStudentByUserId(user.userId);
+    // KURAL: Sınıfa girmek için önce sohbete "katıl" yazmak şarttır; beğeni otomatik oturtmaz!
+    const idx = findStudentByUserId(user.userId);
     if (idx === -1) {
         if (gameState.proctors.some(p => p.userId === user.userId)) {
             touchUserActivity(user.userId);
-            return;
         }
-        idx = seatStudent(user);
-        if (idx === -1) return;
+        return;
     }
 
     const student = gameState.seats[idx];
@@ -521,24 +606,34 @@ function handleLike(user, count = 1) {
     rl.gained += allowedGain;
     likeRateLimiter.set(user.userId, rl);
 
+    const prevFlame = student.flameLevel || 0;
     student.score += allowedGain;
     student.studyingUntil = now + 3000;
-    student.lastPopup = { text: `+${allowedGain} Çalıştı`, color: '#4ade80', id: now + Math.random() };
+    syncStudentVisualTiers(student);
+
+    const flameNames = ['', '🔥 ALEV ALDI!', '🔥🔥 KIZIL ALEV!', '💙 MAVİ PLAZMA!', '💜 MOR ALEV!', '👑 SÜPERNOVA!'];
+    const popupText = student.flameLevel > prevFlame
+        ? `+${allowedGain} ${flameNames[student.flameLevel]}`
+        : `+${allowedGain} Çalıştı`;
+
+    student.lastPopup = { text: popupText, color: '#4ade80', id: now + Math.random() };
 
     const lastCam = likeCamCooldown.get(user.userId) || 0;
-    if (now - lastCam > 15000) {
+    if (now - lastCam > 15000 || student.flameLevel > prevFlame) {
         likeCamCooldown.set(user.userId, now);
         scheduleCameraFocus({
             isGift: false,
             coins: 0,
-            priority: 1,
+            priority: student.flameLevel > prevFlame ? 2 : 1,
             type: 'study',
             userId: user.userId,
             seatIndex: idx,
-            title: `📚 ${student.nickname} Ders Çalışıyor!`,
+            title: student.flameLevel > prevFlame
+                ? `${flameNames[student.flameLevel]} ${student.nickname}!`
+                : `📚 ${student.nickname} Ders Çalışıyor!`,
             subtitle: `Beğeni gönderdi (+${allowedGain} Puan • Toplam: ${student.score})`,
             color: '#4ade80',
-            baseDurationMs: 2200
+            baseDurationMs: 2400
         });
     }
 }
@@ -547,6 +642,7 @@ function handleGift(user, coins) {
     const now = Date.now();
     touchUserActivity(user.userId);
 
+    // Gözetmen olma veya 100+ Jeton Kader Değiştirme hediyesi
     if (coins >= 100 || (coins > gameState.proctorRecord && coins >= 15) || (coins === gameState.proctorRecord && coins >= 15)) {
         promoteToProctor(user, coins);
 
@@ -567,10 +663,12 @@ function handleGift(user, coins) {
                 } else if (s.cheatingUntil > now) {
                     s.score = Math.max(0, s.score - 60);
                     s.cheatingUntil = 0;
+                    s.penaltyUntil = now + 4500;
                     s.statusEffect = 'caught';
                     s.statusUntil = now + 4000;
                     s.lastPopup = { text: '-60 DİSİPLİN!', color: '#f87171', id: now + Math.random() };
                 }
+                syncStudentVisualTiers(s);
             });
             triggerBanner(
                 isAmnesty ? 'KADER DEĞİŞTİ: GENEL AF!' : 'KADER DEĞİŞTİ: SIKI YÖNETİM!',
@@ -581,9 +679,13 @@ function handleGift(user, coins) {
         return;
     }
 
+    // Aktif gözetmen hediye atarsa gözetleme gücü (alanı) ve gözetmen puanı büyür!
     const activeProctor = gameState.proctors.find(p => p.userId === user.userId);
     if (activeProctor) {
         activeProctor.coins += coins;
+        activeProctor.score = (activeProctor.score || 0) + coins * 2;
+        activeProctor.patrolRadius = calculateProctorRadius(activeProctor.coins);
+        activeProctor.lastPopup = { text: `Alan: ${activeProctor.patrolRadius}m (+${coins * 2} Puan)`, color: '#fbbf24', id: now };
         scheduleCameraFocus({
             isGift: true,
             coins,
@@ -592,33 +694,44 @@ function handleGift(user, coins) {
             userId: user.userId,
             proctorUserId: user.userId,
             title: `👮 Gözetmen ${user.nickname} (+${coins} Jeton)`,
-            subtitle: `Devriye gücünü artırdı (Toplam: ${activeProctor.coins} Jeton)`,
+            subtitle: `Gözetleme Alanı ${activeProctor.patrolRadius}m oldu! (Puan: ${activeProctor.score})`,
             color: '#fbbf24',
             baseDurationMs: 2800
         });
         return;
     }
 
-    let idx = findStudentByUserId(user.userId);
+    // KURAL: Sınıfa girmek için önce sohbete "katıl" yazmak şarttır; hediye otomatik sıraya oturtmaz!
+    const idx = findStudentByUserId(user.userId);
     if (idx === -1) {
-        idx = seatStudent(user, true);
-        if (idx === -1) return;
+        const lastRem = reminderCooldown.get(user.userId) || 0;
+        if (now - lastRem > 10000) {
+            reminderCooldown.set(user.userId, now);
+            triggerBanner('ÖNCE SINIFA KATIL!', `${user.nickname}, sıraya oturmak için sohbete "katıl" yaz!`, '#38bdf8');
+        }
+        return;
     }
+
     const actor = gameState.seats[idx];
     actor.lastActiveAt = now;
     const occupied = gameState.seats.filter(s => s && s.userId !== user.userId);
 
+    // 50+ Jeton: Cevap Anahtarı
     if (coins >= 50) {
         actor.score += 120;
         actor.statusEffect = 'answer_key';
         actor.statusUntil = now + 4500;
         actor.lastPopup = { text: '+120 CEVAP ANAHTARI!', color: '#fbbf24', id: now };
+        syncStudentVisualTiers(actor);
+
         const victims = occupied.sort(() => 0.5 - Math.random()).slice(0, 5);
         victims.forEach(v => {
             v.score = Math.max(0, v.score - 25);
+            v.penaltyUntil = now + 4500;
             v.statusEffect = 'burned';
             v.statusUntil = now + 4500;
             v.lastPopup = { text: '-25 Kağıt Yandı!', color: '#f87171', id: now + Math.random() };
+            syncStudentVisualTiers(v);
         });
         scheduleCameraFocus({
             isGift: true,
@@ -635,6 +748,7 @@ function handleGift(user, coins) {
         return;
     }
 
+    // 10+ Jeton: İspiyonla
     if (coins >= 10) {
         const cheaters = occupied.filter(s => s.cheatingUntil > now);
         const target = cheaters.length > 0
@@ -645,35 +759,36 @@ function handleGift(user, coins) {
         actor.statusEffect = 'snitch';
         actor.statusUntil = now + 3500;
         actor.lastPopup = { text: '+25 İspiyon Ödülü', color: '#38bdf8', id: now };
+        syncStudentVisualTiers(actor);
 
         if (target) {
             const penalty = cheaters.length > 0 ? 45 : 25;
-            target.score = Math.max(0, target.score - penalty);
-            target.cheatingUntil = 0;
-            target.statusEffect = 'caught';
-            target.statusUntil = now + 4500;
-            target.lastPopup = { text: `-${penalty} İSPİYONLANDI!`, color: '#ef4444', id: now };
-
             if (gameState.proctors.length > 0) {
-                const p = gameState.proctors[0];
-                const tPos = SEAT_LAYOUT[target.seatIndex];
-                p.catches += 1;
-                p.x = tPos.x;
-                p.z = tPos.z;
+                triggerProctorStrike(gameState.proctors[0], target, penalty, coins, user, idx);
+            } else {
+                target.score = Math.max(0, target.score - penalty);
+                target.cheatingUntil = 0;
+                target.caughtUntil = now + 2200;
+                target.penaltyUntil = now + 4500;
+                target.statusEffect = 'caught';
+                target.statusUntil = now + 4500;
+                target.lastPopup = { text: `-${penalty} İSPİYONLANDI!`, color: '#ef4444', id: now };
+                syncStudentVisualTiers(target);
+
+                scheduleCameraFocus({
+                    isGift: true,
+                    coins,
+                    priority: 3,
+                    type: 'snitch',
+                    userId: user.userId,
+                    seatIndex: idx,
+                    targetSeatIndex: target.seatIndex,
+                    title: `📣 ${actor.nickname} İspiyonladı (${coins} Jeton)!`,
+                    subtitle: `${target.nickname} yakalandı (-${penalty} Puan)!`,
+                    color: '#38bdf8',
+                    baseDurationMs: 3000
+                });
             }
-            scheduleCameraFocus({
-                isGift: true,
-                coins,
-                priority: 3,
-                type: 'snitch',
-                userId: user.userId,
-                seatIndex: idx,
-                targetSeatIndex: target.seatIndex,
-                title: `📣 ${actor.nickname} İspiyonladı (${coins} Jeton)!`,
-                subtitle: `${target.nickname} gözetmene yakalandı (-${penalty} Puan)!`,
-                color: '#38bdf8',
-                baseDurationMs: 3000
-            });
         } else {
             scheduleCameraFocus({
                 isGift: true,
@@ -691,8 +806,9 @@ function handleGift(user, coins) {
         return;
     }
 
+    // 5+ Jeton: En Yakındaki Komşuya Yanlış Kopya Atma (Sabotaj)
     if (coins >= 5) {
-        const victim = findNearestNeighborSeat(idx, actor.score);
+        const victim = findNearestNeighborSeat(idx);
         if (victim) {
             actor.cheatingUntil = now + 5000;
             victim.cheatingUntil = now + 5000;
@@ -708,10 +824,15 @@ function handleGift(user, coins) {
             const caught = checkProctorProximityPenalty(idx, victim.seatIndex, user, coins, true);
             if (!caught) {
                 victim.score = Math.max(0, victim.score - 20);
+                victim.penaltyUntil = now + 4500;
                 victim.statusEffect = 'wrong_cheat';
                 victim.statusUntil = now + 4500;
                 victim.lastPopup = { text: '-20 Yanlış Kopya!', color: '#fb7185', id: now };
+                syncStudentVisualTiers(victim);
+
                 actor.score += 10;
+                syncStudentVisualTiers(actor);
+
                 scheduleCameraFocus({
                     isGift: true,
                     coins,
@@ -720,7 +841,7 @@ function handleGift(user, coins) {
                     userId: user.userId,
                     seatIndex: idx,
                     targetSeatIndex: victim.seatIndex,
-                    title: `😈 ${actor.nickname} Yanlış Kopya Attı (${coins} Jeton)!`,
+                    title: `😈 ${actor.nickname} En Yakınına Yanlış Kopya Attı!`,
                     subtitle: `Yanındaki ${victim.nickname} yanlış kopyayı aldı (-20 Puan)!`,
                     color: '#fb7185',
                     baseDurationMs: 2800
@@ -728,6 +849,7 @@ function handleGift(user, coins) {
             }
         } else {
             actor.score += 15;
+            syncStudentVisualTiers(actor);
             scheduleCameraFocus({
                 isGift: true,
                 coins,
@@ -744,7 +866,8 @@ function handleGift(user, coins) {
         return;
     }
 
-    const neighbor = findNearestNeighborSeat(idx, actor.score);
+    // 1-4 Jeton: En Yakındaki Komşudan Kopya Çekme
+    const neighbor = findNearestNeighborSeat(idx);
     actor.cheatingUntil = now + 6000;
     actor.cheatTargetSeat = neighbor ? neighbor.seatIndex : -1;
 
@@ -764,6 +887,8 @@ function handleGift(user, coins) {
         const gain = 20;
         actor.score += gain;
         actor.lastPopup = { text: `+${gain} Kopya Aldı!`, color: '#facc15', id: now };
+        syncStudentVisualTiers(actor);
+
         if (neighbor) {
             neighbor.lastPopup = { text: 'Kopya Verdi!', color: '#fde047', id: now + 0.1 };
         }
@@ -776,80 +901,61 @@ function handleGift(user, coins) {
             seatIndex: idx,
             targetSeatIndex: neighbor ? neighbor.seatIndex : -1,
             title: `👀 ${actor.nickname} Kopya Çekiyor (${coins} Jeton)!`,
-            subtitle: neighbor ? `Yanındaki ${neighbor.nickname} kağıdından çekti (+${gain})` : `Gizlice kopya çekti (+${gain})`,
+            subtitle: neighbor ? `En yakındaki ${neighbor.nickname} kağıdından çekti (+${gain})` : `Gizlice kopya çekti (+${gain})`,
             color: '#facc15',
             baseDurationMs: 2700
         });
     }
 }
 
+// 200ms Gözetmen Devriye Yakalama & Kamera Kuyruğu Döngüsü
 setInterval(() => {
     const now = Date.now();
     processFocusQueues();
 
     gameState.proctors.forEach(proctor => {
+        const radius = proctor.patrolRadius || calculateProctorRadius(proctor.coins);
         gameState.seats.forEach(s => {
             if (!s || s.cheatingUntil <= now) return;
             const pos = SEAT_LAYOUT[s.seatIndex];
-            const dist = Math.hypot(proctor.x - pos.x, (proctor.y - pos.y) * 1.4, proctor.z - pos.z);
-            if (dist < 8.8) {
+            const dist = Math.hypot(proctor.x - pos.x, (proctor.y - pos.y) * 1.35, proctor.z - pos.z);
+            if (dist <= radius) {
                 const lost = Math.min(s.score, 45);
-                s.score -= lost;
-                s.cheatingUntil = 0;
-                s.statusEffect = 'caught';
-                s.statusUntil = now + 4500;
-                s.lastPopup = { text: `-${lost} GÖZETMEN YAKALADI!`, color: '#ef4444', id: now + Math.random() };
-                proctor.catches += 1;
-                scheduleCameraFocus({
-                    isGift: false,
-                    coins: 0,
-                    priority: 3,
-                    type: 'caught',
-                    userId: s.userId,
-                    seatIndex: s.seatIndex,
-                    title: `🚨 Gözetmen ${proctor.nickname} Yakaladı!`,
-                    subtitle: `${s.nickname} devriye sırasında yakalandı (-${lost} Puan)!`,
-                    color: '#ef4444',
-                    baseDurationMs: 2800
-                });
+                triggerProctorStrike(proctor, s, lost, 0, null, -1);
             }
         });
     });
 }, 200);
 
+// 1 Saniyelik Ana Oyun Döngüsü (Süreden dolayı kimse sınıftan atılmaz!)
+let passiveTick = 0;
 setInterval(() => {
     const now = Date.now();
+    passiveTick += 1;
+
     gameState.cheatPasses = gameState.cheatPasses.filter(cp => now - cp.createdAt < 3200);
     gameState.exitingStudents = gameState.exitingStudents.filter(ex => now - ex.startedAt < ex.durationMs);
     if (gameState.worldEffect && now > gameState.worldEffect.expiresAt) {
         gameState.worldEffect = null;
     }
 
-    for (let i = 0; i < MAX_SEATS; i++) {
-        const s = gameState.seats[i];
-        if (s && (now - s.lastActiveAt > INACTIVITY_TIMEOUT_MS)) {
-            removeStudentFromHall(i, 'Yayından ayrıldı');
-        }
-    }
-
-    gameState.proctors = gameState.proctors.filter(p => (now - p.lastActiveAt) <= 240000);
-    if (gameState.proctors.length === 0 && gameState.proctorRecord > 0) {
-        gameState.proctorRecord = 0;
-    }
-
+    // Gözetmen devriye hareketi ve her 10 saniyede +2 devriye puanı
     gameState.proctors.forEach(proctor => {
-        if (Math.random() < 0.3) {
-            const angle = (Math.random() - 0.5) * 1.45;
-            const radius = 11 + Math.random() * 23;
+        if (passiveTick % 10 === 0) {
+            proctor.score = (proctor.score || 0) + 2;
+        }
+        if (now > (proctor.attackingUntil || 0) && Math.random() < 0.32) {
+            const angle = (Math.random() - 0.5) * 1.3;
+            const radius = 10.5 + Math.random() * 20;
             proctor.targetX = Math.sin(angle) * radius;
-            proctor.targetZ = Math.cos(angle) * radius - 6;
+            proctor.targetZ = Math.cos(angle) * radius - 7;
         }
         proctor.x += (proctor.targetX - proctor.x) * 0.22;
         proctor.z += (proctor.targetZ - proctor.z) * 0.22;
 
-        const distFromCenter = Math.hypot(proctor.x, proctor.z + 6);
-        const approxTier = Math.max(0, Math.min(7, (distFromCenter - 11.5) / 3.5));
-        proctor.y = 0.4 + approxTier * 0.72;
+        const distFromCenter = Math.hypot(proctor.x, proctor.z + 7);
+        const approxTier = Math.max(0, Math.min(7, (distFromCenter - 10.5) / 2.95));
+        proctor.y = 0.35 + approxTier * 0.78;
     });
 
     gameState.timeLeft -= 1;
@@ -870,7 +976,10 @@ setInterval(() => {
             if (s) {
                 s.score = 10;
                 s.cheatingUntil = 0;
+                s.caughtUntil = 0;
+                s.penaltyUntil = 0;
                 s.statusEffect = null;
+                syncStudentVisualTiers(s);
             }
         });
     }
@@ -946,17 +1055,52 @@ function connectToTikTok(targetInput) {
         reconnectTimer = setTimeout(() => connectToTikTok(cleanInput), 10000);
     });
 
-    tiktokConnection.on('member', data => {
-        const u = extractTikTokUser(data);
-        if (u.userId) touchUserActivity(u.userId);
+    // TikTok yayın bitişi kontrolü
+    tiktokConnection.on('streamEnd', () => {
+        console.log('Canlı yayın sona erdi.');
+        connectionStatus = `Yayın sona erdi (${label})`;
+        io.emit('status_update', { connectedUsername, connectionStatus });
     });
 
+    tiktokConnection.on('member', data => {
+        const u = extractTikTokUser(data);
+        if (u.userId) {
+            seenInRoomUsers.add(u.userId);
+            touchUserActivity(u.userId);
+        }
+    });
+
+    // Odadaki aktif izleyici listesi üzerinden gerçek ayrılma tespiti
     tiktokConnection.on('roomUser', data => {
         const list = (data && (data.ranks || data.ranksList)) || [];
+        const viewerCount = Number(data && (data.viewerCount || data.totalUser || list.length) || 0);
+        if (viewerCount > 0) lastKnownViewerCount = viewerCount;
+
+        const currentIds = new Set();
         list.forEach(r => {
             const u = extractTikTokUser(r);
-            if (u.userId) touchUserActivity(u.userId);
+            if (u.userId) {
+                currentIds.add(u.userId);
+                seenInRoomUsers.add(u.userId);
+                touchUserActivity(u.userId);
+            }
         });
+
+        // Küçük odalarda (<= 18 izleyici) TikTok listedeki herkesi gönderir;
+        // daha önce listede olup art arda 4 güncellemede kaybolan izleyici yayından çıkmış demektir.
+        if (list.length > 0 && lastKnownViewerCount > 0 && lastKnownViewerCount <= 18) {
+            seenInRoomUsers.forEach(uid => {
+                if (!currentIds.has(uid)) {
+                    const strikes = (missingRoomUserStrikes.get(uid) || 0) + 1;
+                    missingRoomUserStrikes.set(uid, strikes);
+                    if (strikes >= 4) {
+                        removeUserCompletely(uid, 'Yayından ayrıldı');
+                    }
+                } else {
+                    missingRoomUserStrikes.delete(uid);
+                }
+            });
+        }
     });
 
     tiktokConnection.on('chat', data => {
@@ -975,11 +1119,8 @@ function connectToTikTok(targetInput) {
         console.log(`[SOHBET] ${user.nickname}: ${rawComment}`);
 
         if (msg === 'çık' || msg === 'cik' || msg === 'ayrıl' || msg === 'ayril') {
-            const existingIdx = findStudentByUserId(user.userId);
-            if (existingIdx !== -1) {
-                removeStudentFromHall(existingIdx, 'Sınıftan ayrıldı');
-                io.emit('state_update', { ...gameState, giftQueueLength: giftFocusQueue.length });
-            }
+            removeUserCompletely(user.userId, 'Sınıftan ayrıldı');
+            io.emit('state_update', { ...gameState, giftQueueLength: giftFocusQueue.length });
             return;
         }
 
@@ -1053,19 +1194,29 @@ io.on('connection', socket => {
         } else if (payload.type === 'like') {
             const seated = gameState.seats.filter(Boolean);
             if (seated.length > 0) {
-                handleLike(seated[Math.floor(Math.random() * seated.length)], 5);
+                handleLike(seated[Math.floor(Math.random() * seated.length)], 15);
+            }
+        } else if (payload.type === 'boost_flame') {
+            const seated = gameState.seats.filter(Boolean);
+            if (seated.length > 0) {
+                const target = seated[Math.floor(Math.random() * seated.length)];
+                handleLike(target, 15);
+                target.score += 75;
+                syncStudentVisualTiers(target);
+                target.lastPopup = { text: `🔥 +90 Süper Çalışma!`, color: '#f97316', id: Date.now() };
             }
         } else if (payload.type === 'gift') {
             const seated = gameState.seats.filter(Boolean);
-            const actor = (payload.coins < 100 && seated.length > 0 && Math.random() > 0.35)
+            const actor = (payload.coins < 15 && seated.length > 0)
                 ? seated[Math.floor(Math.random() * seated.length)]
                 : testUser;
             handleGift(actor, payload.coins);
         } else if (payload.type === 'gift_storm') {
             const coinsList = [1, 5, 10, 50];
             coinsList.forEach((c, idx) => {
-                const n = Math.floor(100 + Math.random() * 900);
-                handleGift({ userId: `bagisci_${n}_${idx}`, nickname: `Bağışçı_${n}`, avatar: '' }, c);
+                const seated = gameState.seats.filter(Boolean);
+                const actor = seated[idx % seated.length] || { userId: `bagisci_${idx}`, nickname: `Bağışçı_${idx}`, avatar: '' };
+                handleGift(actor, c);
             });
         } else if (payload.type === 'end_round') {
             gameState.timeLeft = 1;
