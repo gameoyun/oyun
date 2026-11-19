@@ -1,0 +1,1248 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>3D Amfi Sınav Salonu - TikTok Live</title>
+<script src="/socket.io/socket.io.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<style>
+    * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
+    body {
+        background: #090d16;
+        color: #f8fafc;
+        font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        height: 100vh;
+        overflow: hidden;
+    }
+    #stage-wrapper {
+        position: relative;
+        height: 100vh;
+        aspect-ratio: 9 / 16;
+        max-width: 100vw;
+        box-shadow: 0 0 70px rgba(0, 0, 0, 0.9);
+        background: #14110f;
+        overflow: hidden;
+    }
+    #three-container {
+        width: 100%;
+        height: 100%;
+    }
+    #top-hud {
+        position: absolute;
+        top: 16px;
+        left: 16px;
+        right: 16px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        background: rgba(15, 23, 42, 0.78);
+        border: 1px solid rgba(251, 191, 36, 0.35);
+        backdrop-filter: blur(10px);
+        padding: 10px 16px;
+        border-radius: 14px;
+        pointer-events: none;
+        z-index: 10;
+    }
+    #top-hud .title { font-weight: 800; font-size: 15px; color: #fde68a; letter-spacing: 0.4px; }
+    #top-hud .sub { font-size: 11px; color: #cbd5e1; margin-top: 2px; }
+    #top-hud .timer {
+        font-family: monospace;
+        font-size: 22px;
+        font-weight: 900;
+        color: #fde047;
+        background: rgba(0,0,0,0.45);
+        padding: 4px 10px;
+        border-radius: 8px;
+    }
+    #cam-badge {
+        position: absolute;
+        top: 78px;
+        left: 16px;
+        background: rgba(15, 23, 42, 0.75);
+        border: 1px solid rgba(255,255,255,0.18);
+        padding: 5px 12px;
+        border-radius: 20px;
+        font-size: 11px;
+        font-weight: 700;
+        color: #e2e8f0;
+        backdrop-filter: blur(6px);
+        z-index: 10;
+        pointer-events: none;
+    }
+    #queue-badge {
+        display: none;
+        position: absolute;
+        top: 78px;
+        right: 16px;
+        background: rgba(217, 119, 6, 0.9);
+        border: 1px solid #fde047;
+        padding: 5px 11px;
+        border-radius: 20px;
+        font-size: 11px;
+        font-weight: 800;
+        color: #fff;
+        z-index: 10;
+        pointer-events: none;
+    }
+    #focus-card {
+        display: none;
+        position: absolute;
+        bottom: 24px;
+        left: 20px;
+        right: 20px;
+        background: rgba(15, 23, 42, 0.92);
+        border: 2px solid #fbbf24;
+        border-radius: 16px;
+        padding: 14px 18px;
+        text-align: center;
+        backdrop-filter: blur(12px);
+        box-shadow: 0 10px 30px rgba(0,0,0,0.65);
+        z-index: 15;
+    }
+    #focus-badge-type {
+        display: inline-block;
+        font-size: 10px;
+        font-weight: 800;
+        text-transform: uppercase;
+        letter-spacing: 0.8px;
+        padding: 2px 9px;
+        border-radius: 10px;
+        background: rgba(255,255,255,0.14);
+        margin-bottom: 5px;
+    }
+    #focus-title { font-size: 17px; font-weight: 800; margin-bottom: 4px; }
+    #focus-sub { font-size: 13px; color: #f1f5f9; }
+
+    #banner-card {
+        display: none;
+        position: absolute;
+        top: 38%;
+        left: 20px;
+        right: 20px;
+        transform: translateY(-50%);
+        background: rgba(15, 23, 42, 0.95);
+        border: 3px solid #f59e0b;
+        border-radius: 20px;
+        padding: 20px;
+        text-align: center;
+        backdrop-filter: blur(14px);
+        box-shadow: 0 20px 50px rgba(0,0,0,0.8);
+        z-index: 20;
+    }
+    #banner-title { font-size: 21px; font-weight: 900; margin-bottom: 6px; }
+    #banner-sub { font-size: 14px; color: #fff; }
+
+    #test-panel {
+        display: none;
+        position: fixed;
+        right: 18px;
+        top: 18px;
+        width: 310px;
+        background: rgba(17, 24, 39, 0.95);
+        border: 1px solid rgba(255, 255, 255, 0.15);
+        border-radius: 14px;
+        padding: 14px;
+        backdrop-filter: blur(12px);
+        box-shadow: 0 15px 40px rgba(0,0,0,0.7);
+        z-index: 100;
+        max-height: 94vh;
+        overflow-y: auto;
+    }
+    #test-panel h3 { font-size: 13px; color: #fbbf24; margin-bottom: 8px; }
+    #test-panel .status { font-size: 11px; color: #94a3b8; margin-bottom: 8px; background: #0f172a; padding: 6px 8px; border-radius: 6px; }
+    #test-panel input {
+        width: 100%; padding: 7px 10px; border-radius: 8px; border: 1px solid #334155;
+        background: #0f172a; color: #fff; font-size: 12px; margin-bottom: 6px;
+    }
+    #test-panel button {
+        width: 100%; padding: 7px 10px; margin-bottom: 5px; border: none; border-radius: 8px;
+        font-size: 12px; font-weight: 600; cursor: pointer; text-align: left;
+    }
+    #test-panel button:hover { opacity: 0.9; }
+    .cam-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; margin-bottom: 10px; }
+    .cam-grid button { text-align: center !important; background: #1e293b; color: #38bdf8; border: 1px solid #334155 !important; }
+    .cam-grid button.active { background: #0284c7; color: #fff; }
+    .btn-connect { background: #2563eb; color: #fff; text-align: center !important; margin-bottom: 10px !important; }
+    .btn-join { background: #059669; color: #fff; }
+    .btn-leave { background: #475569; color: #f8fafc; }
+    .btn-like { background: #16a34a; color: #fff; }
+    .btn-1 { background: #ca8a04; color: #fff; }
+    .btn-5 { background: #e11d48; color: #fff; }
+    .btn-10 { background: #dc2626; color: #fff; }
+    .btn-50 { background: #d97706; color: #fff; }
+    .btn-100 { background: #7c3aed; color: #fff; }
+    .btn-storm { background: #be185d; color: #fff; }
+    .btn-round { background: #334155; color: #e2e8f0; margin-top: 4px; }
+</style>
+</head>
+<body>
+
+<div id="stage-wrapper">
+    <div id="three-container"></div>
+
+    <div id="top-hud">
+        <div>
+            <div class="title" id="hud-round">3D AMFİ SINAVI • TUR #1</div>
+            <div class="sub" id="hud-sub">Kapasite: 0/250 • "katıl" yaz otur • Gül: Yakından Kopya</div>
+        </div>
+        <div class="timer" id="hud-timer">04:00</div>
+    </div>
+
+    <div id="cam-badge">🎥 Kamera [1/3]: Kuş Bakışı</div>
+    <div id="queue-badge">🎁 Sıradaki Bağışçı: 0</div>
+
+    <div id="focus-card">
+        <div id="focus-badge-type"></div>
+        <div id="focus-title"></div>
+        <div id="focus-sub"></div>
+    </div>
+
+    <div id="banner-card">
+        <div id="banner-title"></div>
+        <div id="banner-sub"></div>
+    </div>
+</div>
+
+<div id="test-panel">
+    <h3>🎥 3D KAMERA AÇILARI (SIRALI)</h3>
+    <div class="cam-grid">
+        <button id="cam-auto" class="active" onclick="setCameraMode('auto')">🔄 Sıralı Döngü (1-2-3)</button>
+        <button id="cam-bird" onclick="setCameraMode('bird')">1. Kuş Bakışı</button>
+        <button id="cam-toboard" onclick="setCameraMode('toboard')">2. Tahtaya Bakış</button>
+        <button id="cam-fromboard" onclick="setCameraMode('fromboard')">3. Tahtadan Bakış</button>
+    </div>
+
+    <h3>🎮 SINAV SALONU KONTROL</h3>
+    <div class="status" id="conn-status">Sunucuya bağlanılıyor...</div>
+    <input type="text" id="tiktok-user" placeholder="TikTok kullanıcı adın (örn: ahmet123)">
+    <button class="btn-connect" onclick="connectTikTok()">Canlı Yayına Bağlan</button>
+
+    <button class="btn-join" onclick="sim('join')">🚪 +1 Öğrenci Sınıfa Girsin (Uzun Yürüyüş)</button>
+    <button class="btn-join" onclick="sim('fill_20')">+20 Öğrenci Amfiye Girsin</button>
+    <button class="btn-leave" onclick="sim('leave_one')">👋 1 Öğrenci Sınıftan Ayrılsın (Çıkış Anim.)</button>
+    <button class="btn-like" onclick="sim('like')">📚 Beğeni Yağmuru (+Puan Çalış)</button>
+    <button class="btn-1" onclick="simGift(1)">1 Jeton (Gül): En Yakından Kopya Çek</button>
+    <button class="btn-5" onclick="simGift(5)">5 Jeton: En Yakına Yanlış Kopya</button>
+    <button class="btn-10" onclick="simGift(10)">10 Jeton: Gözetmene İspiyonla</button>
+    <button class="btn-50" onclick="simGift(50)">50 Jeton: Cevap Anahtarı Çal</button>
+    <button class="btn-100" onclick="simGift(100)">100 Jeton: Gözetmen Ol / Kader Değiştir</button>
+    <button class="btn-storm" onclick="sim('gift_storm')">⚡ Aynı Anda 4 Bağışçı Testi (Kuyruk)</button>
+    <button class="btn-round" onclick="sim('end_round')">Turu Bitir (Yeni Tura Geç)</button>
+</div>
+
+<script>
+const socket = io();
+if (new URLSearchParams(window.location.search).get('test') === '1') {
+    document.getElementById('test-panel').style.display = 'block';
+}
+
+function connectTikTok() {
+    const u = document.getElementById('tiktok-user').value;
+    if (u) socket.emit('connect_tiktok', u);
+}
+function sim(type) { socket.emit('sim_event', { type }); }
+function simGift(coins) { socket.emit('sim_event', { type: 'gift', coins }); }
+
+socket.on('status_update', data => {
+    document.getElementById('conn-status').textContent = data.connectionStatus;
+    if (data.connectedUsername) document.getElementById('tiktok-user').value = data.connectedUsername;
+});
+
+function drawPill(ctx, x, y, w, h, r) {
+    ctx.beginPath();
+    if (ctx.roundRect) {
+        ctx.roundRect(x, y, w, h, r);
+    } else {
+        ctx.rect(x, y, w, h);
+    }
+}
+
+// ================= THREE.JS 3D SAHNE KURULUMU =================
+const container = document.getElementById('three-container');
+const scene = new THREE.Scene();
+scene.background = new THREE.Color('#16120e');
+scene.fog = new THREE.FogExp2('#16120e', 0.011);
+
+const camera = new THREE.PerspectiveCamera(48, 9 / 16, 0.1, 200);
+const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+renderer.setSize(container.clientWidth, container.clientHeight);
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+container.appendChild(renderer.domElement);
+
+window.addEventListener('resize', () => {
+    renderer.setSize(container.clientWidth, container.clientHeight);
+});
+
+const ambientLight = new THREE.AmbientLight('#ffedd5', 0.65);
+scene.add(ambientLight);
+
+const sunLight = new THREE.DirectionalLight('#fde68a', 1.15);
+sunLight.position.set(-22, 36, 18);
+sunLight.castShadow = true;
+sunLight.shadow.mapSize.width = 2048;
+sunLight.shadow.mapSize.height = 2048;
+sunLight.shadow.camera.near = 5;
+sunLight.shadow.camera.far = 95;
+const d = 42;
+sunLight.shadow.camera.left = -d;
+sunLight.shadow.camera.right = d;
+sunLight.shadow.camera.top = d;
+sunLight.shadow.camera.bottom = -d;
+scene.add(sunLight);
+
+const boardSpot = new THREE.PointLight('#fef3c7', 1.2, 35);
+boardSpot.position.set(0, 12, -5);
+scene.add(boardSpot);
+
+const floorMat = new THREE.MeshStandardMaterial({ color: '#261d17', roughness: 0.85 });
+const floorMesh = new THREE.Mesh(new THREE.CylinderGeometry(45, 45, 0.5, 64), floorMat);
+floorMesh.position.set(0, -0.25, 2);
+floorMesh.receiveShadow = true;
+scene.add(floorMesh);
+
+const tierColors = ['#3b2a1e', '#443123', '#3b2a1e', '#443123', '#3b2a1e', '#443123', '#3b2a1e', '#443123'];
+for (let t = 0; t < 8; t++) {
+    const innerR = 9.8 + t * 3.5;
+    const outerR = innerR + 3.5;
+    const height = 0.4 + t * 0.72;
+    const shape = new THREE.Shape();
+    const startA = -Math.PI * 0.46;
+    const endA = Math.PI * 0.46;
+
+    shape.absarc(0, 0, outerR, startA, endA, false);
+    shape.absarc(0, 0, innerR, endA, startA, true);
+    shape.closePath();
+
+    const geom = new THREE.ExtrudeGeometry(shape, { depth: height, bevelEnabled: false });
+    geom.rotateX(Math.PI / 2);
+    const mat = new THREE.MeshStandardMaterial({ color: tierColors[t], roughness: 0.8 });
+    const mesh = new THREE.Mesh(geom, mat);
+    mesh.position.set(0, height, -6);
+    mesh.receiveShadow = true;
+    scene.add(mesh);
+}
+
+// Giriş / Çıkış Kapısı & Işık Portalı
+const doorGroup = new THREE.Group();
+doorGroup.position.set(0, 0, -14.8);
+scene.add(doorGroup);
+
+const doorFrame = new THREE.Mesh(
+    new THREE.BoxGeometry(4.6, 5.6, 0.6),
+    new THREE.MeshStandardMaterial({ color: '#78350f', roughness: 0.5 })
+);
+doorFrame.position.y = 2.8;
+doorGroup.add(doorFrame);
+
+const doorPortal = new THREE.Mesh(
+    new THREE.PlaneGeometry(3.6, 4.9),
+    new THREE.MeshBasicMaterial({ color: '#fef3c7', transparent: true, opacity: 0.28, side: THREE.DoubleSide })
+);
+doorPortal.position.set(0, 2.5, 0.35);
+doorGroup.add(doorPortal);
+
+// ================= DEV 3D KARA TAHTA =================
+const boardCanvas = document.createElement('canvas');
+boardCanvas.width = 1024;
+boardCanvas.height = 512;
+const bCtx = boardCanvas.getContext('2d');
+const boardTexture = new THREE.CanvasTexture(boardCanvas);
+
+const blackboardGroup = new THREE.Group();
+blackboardGroup.position.set(0, 5.2, -13.5);
+scene.add(blackboardGroup);
+
+const frameMesh = new THREE.Mesh(
+    new THREE.BoxGeometry(15.6, 8.0, 0.45),
+    new THREE.MeshStandardMaterial({ color: '#5c3317', roughness: 0.6 })
+);
+blackboardGroup.add(frameMesh);
+
+const screenMesh = new THREE.Mesh(
+    new THREE.PlaneGeometry(14.8, 7.2),
+    new THREE.MeshBasicMaterial({ map: boardTexture })
+);
+screenMesh.position.z = 0.24;
+blackboardGroup.add(screenMesh);
+
+const podium = new THREE.Mesh(
+    new THREE.BoxGeometry(2.8, 2.2, 1.6),
+    new THREE.MeshStandardMaterial({ color: '#452715', roughness: 0.7 })
+);
+podium.position.set(-5.5, 1.1, -9.5);
+podium.castShadow = true;
+scene.add(podium);
+
+function updateBlackboardTexture(state) {
+    bCtx.fillStyle = '#132a1e';
+    bCtx.fillRect(0, 0, 1024, 512);
+
+    bCtx.strokeStyle = 'rgba(255,255,255,0.08)';
+    bCtx.lineWidth = 2;
+    bCtx.strokeRect(14, 14, 996, 484);
+
+    const mins = String(Math.floor(state.timeLeft / 60)).padStart(2, '0');
+    const secs = String(state.timeLeft % 60).padStart(2, '0');
+    const occupied = state.seats.filter(Boolean);
+
+    bCtx.fillStyle = '#fef3c7';
+    bCtx.font = 'bold 34px sans-serif';
+    bCtx.textAlign = 'left';
+    bCtx.fillText(`AMFİ SINAV SALONU • TUR #${state.round}`, 36, 62);
+
+    bCtx.fillStyle = state.timeLeft <= 30 ? '#f87171' : '#fde047';
+    bCtx.font = 'bold 40px monospace';
+    bCtx.textAlign = 'right';
+    bCtx.fillText(`SÜRE: ${mins}:${secs}`, 984, 64);
+
+    bCtx.fillStyle = '#6ee7b7';
+    bCtx.font = '19px sans-serif';
+    bCtx.textAlign = 'left';
+    bCtx.fillText(`Katılım: ${occupied.length}/250  |  "katıl" yaz otur  |  Beğeni: +Puan  |  Gül: Yanından Kopya`, 36, 104);
+
+    bCtx.beginPath();
+    bCtx.moveTo(36, 122);
+    bCtx.lineTo(988, 122);
+    bCtx.strokeStyle = 'rgba(255,255,255,0.25)';
+    bCtx.stroke();
+
+    bCtx.fillStyle = '#fbbf24';
+    bCtx.font = 'bold 23px sans-serif';
+    bCtx.fillText(`AKTİF GÖZETMENLER (Rekor: ${state.proctorRecord} Jeton)`, 36, 165);
+
+    if (state.proctors.length === 0) {
+        bCtx.fillStyle = '#cbd5e1';
+        bCtx.font = '20px sans-serif';
+        bCtx.fillText('• Henüz gözetmen yok.', 36, 208);
+        bCtx.fillText('• En yüksek hediye atan veya tur', 36, 240);
+        bCtx.fillText('  birincisi olan gözetmen olur!', 36, 268);
+    } else {
+        state.proctors.slice(0, 4).forEach((p, idx) => {
+            bCtx.fillStyle = '#ffffff';
+            bCtx.font = 'bold 22px sans-serif';
+            bCtx.fillText(`👮 ${p.nickname.slice(0, 14)} (${p.coins} Jeton) - ${p.catches} Yakalama`, 36, 208 + idx * 42);
+        });
+    }
+
+    bCtx.fillStyle = '#38bdf8';
+    bCtx.font = 'bold 23px sans-serif';
+    bCtx.fillText('EN YÜKSEK ORTALAMA (İlk 5)', 540, 165);
+
+    const top5 = occupied.sort((a, b) => b.score - a.score).slice(0, 5);
+    if (top5.length === 0) {
+        bCtx.fillStyle = '#cbd5e1';
+        bCtx.font = '20px sans-serif';
+        bCtx.fillText('Sıralar henüz boş...', 540, 208);
+    } else {
+        const medals = ['🥇', '🥈', '🥉', '4.', '5.'];
+        top5.forEach((st, idx) => {
+            const y = 208 + idx * 44;
+            bCtx.fillStyle = '#f8fafc';
+            bCtx.font = 'bold 22px sans-serif';
+            bCtx.fillText(`${medals[idx]} ${st.nickname.slice(0, 14)}`, 540, y);
+            bCtx.fillStyle = '#4ade80';
+            bCtx.textAlign = 'right';
+            bCtx.fillText(`${st.score} Puan`, 984, y);
+            bCtx.textAlign = 'left';
+        });
+    }
+
+    bCtx.fillStyle = 'rgba(239, 68, 68, 0.25)';
+    bCtx.fillRect(36, 434, 952, 48);
+    bCtx.fillStyle = '#fca5a5';
+    bCtx.font = 'bold 19px sans-serif';
+    bCtx.textAlign = 'center';
+    bCtx.fillText('KURAL: Gözetmen yakınındayken kopya veren/alan yakalanır! 3 dk etkileşimsiz kalan sıradan çıkar.', 512, 465);
+
+    boardTexture.needsUpdate = true;
+}
+
+// ================= 250 SIRA VE DETAYLI MİNİ 3D KARAKTERLER =================
+const deskGroup = new THREE.Group();
+scene.add(deskGroup);
+
+const deskMeshes = [];
+const studentMeshes = new Map();
+const exitingMeshes = new Map();
+const proctorMeshes = new Map();
+const paperAirplanes = [];
+const effectBeams = [];
+const particle3D = [];
+
+const deskWoodMat = new THREE.MeshStandardMaterial({ color: '#7c4d2b', roughness: 0.65 });
+const deskEmptyMat = new THREE.MeshStandardMaterial({ color: '#4a2e1b', roughness: 0.8 });
+const paperMat = new THREE.MeshBasicMaterial({ color: '#f8fafc' });
+
+function initDesks(layout) {
+    if (deskMeshes.length > 0) return;
+    const deskGeo = new THREE.BoxGeometry(1.75, 0.14, 0.95);
+    const legGeo = new THREE.BoxGeometry(0.12, 0.85, 0.12);
+    const paperGeo = new THREE.PlaneGeometry(0.45, 0.6);
+
+    layout.forEach(seat => {
+        const g = new THREE.Group();
+        g.position.set(seat.x, seat.y, seat.z);
+        g.rotation.y = seat.rotY;
+
+        const top = new THREE.Mesh(deskGeo, deskEmptyMat);
+        top.position.y = 0.85;
+        top.castShadow = true;
+        top.receiveShadow = true;
+        g.add(top);
+
+        const leg1 = new THREE.Mesh(legGeo, deskEmptyMat);
+        leg1.position.set(-0.75, 0.42, 0);
+        const leg2 = new THREE.Mesh(legGeo, deskEmptyMat);
+        leg2.position.set(0.75, 0.42, 0);
+        g.add(leg1, leg2);
+
+        const sheet = new THREE.Mesh(paperGeo, paperMat);
+        sheet.rotation.x = -Math.PI / 2;
+        sheet.position.set(0, 0.93, 0.05);
+        g.add(sheet);
+
+        deskGroup.add(g);
+        deskMeshes.push({ group: g, top });
+    });
+}
+
+// Kollu, bacaklı, yüz ifadeli detaylı mini 3D karakter oluşturucu
+function buildCharacterRig(person, startPos, rotY, isEntering = false) {
+    const group = new THREE.Group();
+    const bodyMat = new THREE.MeshStandardMaterial({ color: person.color, roughness: 0.45 });
+    const skinMat = new THREE.MeshStandardMaterial({ color: '#fed7aa', roughness: 0.6 });
+    const pantsMat = new THREE.MeshStandardMaterial({ color: '#1e293b', roughness: 0.8 });
+    const hairMat = new THREE.MeshStandardMaterial({ color: '#27272a', roughness: 0.85 });
+
+    // Bacaklar (Yürüme animasyonu için)
+    const legGeo = new THREE.CylinderGeometry(0.1, 0.09, 0.48, 8);
+    const leftLeg = new THREE.Mesh(legGeo, pantsMat);
+    leftLeg.position.set(-0.15, 0.24, 0);
+    group.add(leftLeg);
+
+    const rightLeg = new THREE.Mesh(legGeo, pantsMat);
+    rightLeg.position.set(0.15, 0.24, 0);
+    group.add(rightLeg);
+
+    // Gövde + Sırt Çantası
+    const torso = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.36, 0.72, 12), bodyMat);
+    torso.position.y = 0.78;
+    torso.castShadow = true;
+    group.add(torso);
+
+    const backpack = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.48, 0.22), pantsMat);
+    backpack.position.set(0, 0.82, -0.28);
+    group.add(backpack);
+
+    // Kafa + Saç + Gözler (Yönü net belli olsun)
+    const headGroup = new THREE.Group();
+    headGroup.position.y = 1.42;
+    group.add(headGroup);
+
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.31, 16, 16), skinMat);
+    head.castShadow = true;
+    headGroup.add(head);
+
+    const hair = new THREE.Mesh(new THREE.SphereGeometry(0.32, 16, 12, 0, Math.PI * 2, 0, Math.PI * 0.55), hairMat);
+    hair.position.y = 0.04;
+    headGroup.add(hair);
+
+    const eyeGeo = new THREE.SphereGeometry(0.045, 8, 8);
+    const eyeMat = new THREE.MeshBasicMaterial({ color: '#0f172a' });
+    const leftEye = new THREE.Mesh(eyeGeo, eyeMat);
+    leftEye.position.set(-0.11, 0.02, 0.28);
+    const rightEye = new THREE.Mesh(eyeGeo, eyeMat);
+    rightEye.position.set(0.11, 0.02, 0.28);
+    headGroup.add(leftEye, rightEye);
+
+    // Kollar (Omuz pivotlu)
+    const armGeo = new THREE.CylinderGeometry(0.085, 0.085, 0.54, 8);
+    const leftArm = new THREE.Mesh(armGeo, bodyMat);
+    leftArm.position.set(-0.4, 0.92, 0.08);
+    group.add(leftArm);
+
+    const rightArm = new THREE.Mesh(armGeo, bodyMat);
+    rightArm.position.set(0.4, 0.92, 0.08);
+    group.add(rightArm);
+
+    // Zeminde Vurgu Halkası (Giriş/Çıkış/Aksiyon sırasında parlar)
+    const baseRing = new THREE.Mesh(
+        new THREE.RingGeometry(0.45, 0.85, 24),
+        new THREE.MeshBasicMaterial({ color: person.color, side: THREE.DoubleSide, transparent: true, opacity: 0.0 })
+    );
+    baseRing.rotation.x = -Math.PI / 2;
+    baseRing.position.y = 0.06;
+    group.add(baseRing);
+
+    // Üst Bilgi Kartı (Profil Fotoğrafı + İsim + Puan)
+    const bCanvas = document.createElement('canvas');
+    bCanvas.width = 276;
+    bCanvas.height = 114;
+    const bCtx = bCanvas.getContext('2d');
+    const bTex = new THREE.CanvasTexture(bCanvas);
+    const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: bTex, transparent: true }));
+    sprite.scale.set(2.55, 1.08, 1);
+    sprite.position.set(0, 2.42, 0);
+    group.add(sprite);
+
+    group.position.copy(startPos);
+    group.rotation.y = rotY;
+    scene.add(group);
+
+    const rig = {
+        group,
+        headGroup,
+        leftArm,
+        rightArm,
+        leftLeg,
+        rightLeg,
+        baseRing,
+        badgeCtx: bCtx,
+        badgeTex: bTex,
+        avatarImg: null,
+        lastKey: '',
+        enterStartedAt: isEntering ? Date.now() : 0,
+        enterDuration: 4000
+    };
+
+    if (person.avatar) {
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        img.onload = () => {
+            rig.avatarImg = img;
+            rig.lastKey = '';
+        };
+        img.src = person.avatar;
+    }
+
+    return rig;
+}
+
+function updateCharacterBadge(rig, person, statusTag, borderColor, bgColor) {
+    const key = `${person.score}_${statusTag}_${borderColor}`;
+    if (rig.lastKey === key) return;
+    rig.lastKey = key;
+
+    const ctx = rig.badgeCtx;
+    ctx.clearRect(0, 0, 276, 114);
+
+    ctx.fillStyle = bgColor || 'rgba(15, 23, 42, 0.86)';
+    drawPill(ctx, 10, 16, 256, 82, 41);
+    ctx.fill();
+
+    ctx.strokeStyle = borderColor || person.color;
+    ctx.lineWidth = 4.5;
+    ctx.stroke();
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(52, 57, 29, 0, Math.PI * 2);
+    ctx.clip();
+    if (rig.avatarImg) {
+        ctx.drawImage(rig.avatarImg, 23, 28, 58, 58);
+    } else {
+        ctx.fillStyle = person.color;
+        ctx.fillRect(23, 28, 58, 58);
+        ctx.fillStyle = '#fff';
+        ctx.font = 'bold 27px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(person.nickname.charAt(0).toUpperCase(), 52, 57);
+    }
+    ctx.restore();
+
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 20px sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillText(person.nickname.slice(0, 11), 92, 48);
+
+    ctx.fillStyle = '#fde047';
+    ctx.font = 'bold 20px sans-serif';
+    ctx.fillText(statusTag || `${person.score} Puan`, 92, 78);
+
+    rig.badgeTex.needsUpdate = true;
+}
+
+function createProctorCharacter(proctor) {
+    const group = new THREE.Group();
+
+    const body = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.42, 0.48, 1.15, 14),
+        new THREE.MeshStandardMaterial({ color: '#dc2626', roughness: 0.4 })
+    );
+    body.position.y = 1.05;
+    body.castShadow = true;
+    group.add(body);
+
+    const head = new THREE.Mesh(
+        new THREE.SphereGeometry(0.38, 16, 16),
+        new THREE.MeshStandardMaterial({ color: '#fed7aa' })
+    );
+    head.position.y = 1.88;
+    group.add(head);
+
+    const hat = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.46, 0.46, 0.16, 16),
+        new THREE.MeshStandardMaterial({ color: '#1e293b' })
+    );
+    hat.position.y = 2.22;
+    group.add(hat);
+
+    const aura = new THREE.Mesh(
+        new THREE.RingGeometry(0.8, 9.0, 40),
+        new THREE.MeshBasicMaterial({ color: '#ef4444', side: THREE.DoubleSide, transparent: true, opacity: 0.2 })
+    );
+    aura.rotation.x = -Math.PI / 2;
+    aura.position.y = 0.08;
+    group.add(aura);
+
+    const c = document.createElement('canvas');
+    c.width = 256; c.height = 72;
+    const cx = c.getContext('2d');
+    cx.fillStyle = '#dc2626';
+    drawPill(cx, 10, 10, 236, 52, 26); cx.fill();
+    cx.strokeStyle = '#fde047'; cx.lineWidth = 4; cx.stroke();
+    cx.fillStyle = '#fff'; cx.font = 'bold 22px sans-serif'; cx.textAlign = 'center';
+    cx.fillText(`👮 ${proctor.nickname.slice(0, 12)}`, 128, 43);
+
+    const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(c), transparent: true }));
+    sprite.scale.set(3.2, 0.9, 1);
+    sprite.position.y = 3.0;
+    group.add(sprite);
+
+    group.position.set(proctor.x, proctor.y, proctor.z);
+    scene.add(group);
+    return { group, aura };
+}
+
+// 3D Görsel Efekt Yardımcıları
+const seenCheatPasses = new Set();
+function spawnPaperAirplane(fromPos, toPos, isSabotage) {
+    const geom = new THREE.ConeGeometry(0.32, 0.95, 4);
+    geom.rotateX(Math.PI / 2);
+    const mat = new THREE.MeshBasicMaterial({ color: isSabotage ? '#fb7185' : '#fde047' });
+    const mesh = new THREE.Mesh(geom, mat);
+    scene.add(mesh);
+
+    paperAirplanes.push({
+        mesh,
+        start: new THREE.Vector3(fromPos.x, fromPos.y + 1.4, fromPos.z),
+        end: new THREE.Vector3(toPos.x, toPos.y + 1.4, toPos.z),
+        progress: 0
+    });
+
+    // İki sıra arasında parlak etkileşim ışını
+    spawnBeamBetween(fromPos, toPos, isSabotage ? '#fb7185' : '#facc15', 2200);
+}
+
+function spawnBeamBetween(posA, posB, color, durationMs = 2000) {
+    const p1 = new THREE.Vector3(posA.x, posA.y + 1.5, posA.z);
+    const p2 = new THREE.Vector3(posB.x, posB.y + 1.5, posB.z);
+    const dist = p1.distanceTo(p2);
+    if (dist < 0.2) return;
+
+    const geom = new THREE.CylinderGeometry(0.06, 0.06, dist, 8);
+    geom.rotateX(Math.PI / 2);
+    const mat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.75 });
+    const mesh = new THREE.Mesh(geom, mat);
+    mesh.position.copy(p1).lerp(p2, 0.5);
+    mesh.lookAt(p2);
+    scene.add(mesh);
+
+    effectBeams.push({ mesh, expiresAt: Date.now() + durationMs });
+}
+
+function spawnBurst3D(x, y, z, color, count = 18) {
+    const geo = new THREE.SphereGeometry(0.15, 6, 6);
+    const mat = new THREE.MeshBasicMaterial({ color });
+    for (let i = 0; i < count; i++) {
+        const m = new THREE.Mesh(geo, mat);
+        m.position.set(x, y + 1.3, z);
+        scene.add(m);
+        particle3D.push({
+            mesh: m,
+            vx: (Math.random() - 0.5) * 0.24,
+            vy: 0.12 + Math.random() * 0.25,
+            vz: (Math.random() - 0.5) * 0.24,
+            life: 1
+        });
+    }
+}
+
+// ================= SIRALI 3D KAMERA SİSTEMİ =================
+const CAMERA_SEQUENCE = ['bird', 'toboard', 'fromboard'];
+let cameraMode = 'auto';
+let seqIndex = 0;
+let lastAutoSwitch = Date.now();
+
+const currentCamPos = new THREE.Vector3(0, 34, 30);
+const currentCamLook = new THREE.Vector3(0, 2, 4);
+
+function setCameraMode(mode) {
+    cameraMode = mode;
+    if (mode !== 'auto') {
+        const idx = CAMERA_SEQUENCE.indexOf(mode);
+        if (idx !== -1) seqIndex = idx;
+    }
+    document.querySelectorAll('.cam-grid button').forEach(b => b.classList.remove('active'));
+    const btn = document.getElementById(`cam-${mode}`);
+    if (btn) btn.classList.add('active');
+}
+
+// ================= SUNUCU VERİSİ SENKRONİZASYONU =================
+let gameState = null;
+let lastRenderedFocusId = null;
+let lastBannerId = null;
+let lastWorldEffectId = null;
+
+socket.on('state_update', state => {
+    gameState = state;
+    if (state.seatLayout) initDesks(state.seatLayout);
+
+    const mins = String(Math.floor(state.timeLeft / 60)).padStart(2, '0');
+    const secs = String(state.timeLeft % 60).padStart(2, '0');
+    const occupiedCount = state.seats.filter(Boolean).length;
+    document.getElementById('hud-round').textContent = `3D AMFİ SINAVI • TUR #${state.round}`;
+    document.getElementById('hud-sub').textContent = `Kapasite: ${occupiedCount}/250 • "katıl" yaz otur • Gül: Yakından Kopya`;
+    document.getElementById('hud-timer').textContent = `${mins}:${secs}`;
+    updateBlackboardTexture(state);
+
+    // Kuyrukta bekleyen bağışçı sayacını güncelle
+    const qBadge = document.getElementById('queue-badge');
+    if (state.giftQueueLength && state.giftQueueLength > 0) {
+        qBadge.style.display = 'block';
+        qBadge.textContent = `🎁 Sıradaki Bağışçı: ${state.giftQueueLength}`;
+    } else {
+        qBadge.style.display = 'none';
+    }
+
+    // 1. Oturan Öğrencileri Güncelle
+    const activeUserIds = new Set();
+    state.seats.forEach((student, idx) => {
+        if (deskMeshes[idx]) {
+            deskMeshes[idx].top.material = student ? deskWoodMat : deskEmptyMat;
+        }
+        if (!student) return;
+        activeUserIds.add(student.userId);
+
+        let rig = studentMeshes.get(student.userId);
+        if (!rig) {
+            const seatPos = state.seatLayout[idx];
+            const isRecentJoin = (Date.now() - (student.joinedAt || 0)) < 4200;
+            const startPos = isRecentJoin
+                ? new THREE.Vector3(0, 0.2, -14.8)
+                : new THREE.Vector3(seatPos.x, seatPos.y, seatPos.z - 0.55);
+            rig = buildCharacterRig(student, startPos, isRecentJoin ? 0 : seatPos.rotY, isRecentJoin);
+            studentMeshes.set(student.userId, rig);
+        }
+    });
+
+    for (const [uid, rig] of studentMeshes.entries()) {
+        if (!activeUserIds.has(uid)) {
+            scene.remove(rig.group);
+            studentMeshes.delete(uid);
+        }
+    }
+
+    // 2. Sınıftan Ayrılan Öğrencilerin Çıkış Animasyonlarını Oluştur
+    const activeExitIds = new Set();
+    (state.exitingStudents || []).forEach(ex => {
+        activeExitIds.add(ex.id);
+        if (!exitingMeshes.has(ex.id) && state.seatLayout) {
+            const seatPos = state.seatLayout[ex.fromSeatIndex];
+            const startPos = new THREE.Vector3(seatPos.x, seatPos.y, seatPos.z - 0.55);
+            const rig = buildCharacterRig(ex, startPos, seatPos.rotY, false);
+            updateCharacterBadge(rig, ex, '👋 Ayrılıyor...', '#94a3b8', 'rgba(30, 41, 59, 0.92)');
+            exitingMeshes.set(ex.id, { rig, data: ex });
+        }
+    });
+    for (const [exId, entry] of exitingMeshes.entries()) {
+        if (!activeExitIds.has(exId)) {
+            scene.remove(entry.rig.group);
+            exitingMeshes.delete(exId);
+        }
+    }
+
+    // 3. Gözetmenleri Güncelle
+    const activeProctorIds = new Set();
+    state.proctors.forEach(p => {
+        activeProctorIds.add(p.userId);
+        let pObj = proctorMeshes.get(p.userId);
+        if (!pObj) {
+            pObj = createProctorCharacter(p);
+            proctorMeshes.set(p.userId, pObj);
+        }
+        pObj.targetPos = new THREE.Vector3(p.x, p.y, p.z);
+    });
+    for (const [uid, pObj] of proctorMeshes.entries()) {
+        if (!activeProctorIds.has(uid)) {
+            scene.remove(pObj.group);
+            proctorMeshes.delete(uid);
+        }
+    }
+
+    // 4. Kopya Kağıt Uçakları
+    if (state.cheatPasses && state.seatLayout) {
+        state.cheatPasses.forEach(cp => {
+            if (seenCheatPasses.has(cp.id)) return;
+            seenCheatPasses.add(cp.id);
+            if (seenCheatPasses.size > 200) seenCheatPasses.clear();
+            const fromPos = state.seatLayout[cp.fromSeat];
+            const toPos = state.seatLayout[cp.toSeat];
+            if (fromPos && toPos) spawnPaperAirplane(fromPos, toPos, cp.isSabotage);
+        });
+    }
+
+    // 5. Büyük Dünya Efekti (100+ Jeton Genel Af / Sıkı Yönetim Dalgası)
+    if (state.worldEffect && state.worldEffect.id !== lastWorldEffectId) {
+        lastWorldEffectId = state.worldEffect.id;
+        const waveColor = state.worldEffect.type === 'amnesty' ? '#10b981' : '#ef4444';
+        spawnBurst3D(0, 3, 2, waveColor, 55);
+    }
+
+    // 6. Aktif Odaklanma Kartı ve Efektleri
+    const fCard = document.getElementById('focus-card');
+    if (state.activeFocus) {
+        const focus = state.activeFocus;
+        if (focus.id !== lastRenderedFocusId) {
+            lastRenderedFocusId = focus.id;
+            if (focus.seatIndex >= 0 && state.seatLayout && state.seatLayout[focus.seatIndex]) {
+                const pos = state.seatLayout[focus.seatIndex];
+                spawnBurst3D(pos.x, pos.y, pos.z, focus.color, focus.isGift ? 26 : 14);
+            }
+            if (focus.targetSeatIndex >= 0 && state.seatLayout && state.seatLayout[focus.targetSeatIndex]) {
+                const tPos = state.seatLayout[focus.targetSeatIndex];
+                spawnBurst3D(tPos.x, tPos.y, tPos.z, focus.color, 18);
+                if (focus.seatIndex >= 0 && state.seatLayout[focus.seatIndex]) {
+                    spawnBeamBetween(state.seatLayout[focus.seatIndex], tPos, focus.color, 2500);
+                }
+            }
+        }
+        fCard.style.display = 'block';
+        fCard.style.borderColor = focus.color;
+        const tagEl = document.getElementById('focus-badge-type');
+        tagEl.textContent = focus.isGift ? `💎 VIP HEDİYE ODAĞI (${focus.coins} JETON)` : '🎬 CANLI ETKİLEŞİM ANİMASYONU';
+        tagEl.style.color = focus.color;
+        document.getElementById('focus-title').style.color = focus.color;
+        document.getElementById('focus-title').textContent = focus.title;
+        document.getElementById('focus-sub').textContent = focus.subtitle;
+    } else {
+        fCard.style.display = 'none';
+    }
+
+    if (state.banner && state.banner.id !== lastBannerId) {
+        lastBannerId = state.banner.id;
+        const bCard = document.getElementById('banner-card');
+        bCard.style.display = 'block';
+        bCard.style.borderColor = state.banner.color;
+        document.getElementById('banner-title').style.color = state.banner.color;
+        document.getElementById('banner-title').textContent = state.banner.title;
+        document.getElementById('banner-sub').textContent = state.banner.subtitle;
+        setTimeout(() => { bCard.style.display = 'none'; }, 4500);
+    }
+});
+
+// ================= ANA 60 FPS ANİMASYON DÖNGÜSÜ =================
+const clock = new THREE.Clock();
+
+function animate() {
+    requestAnimationFrame(animate);
+    const t = clock.getElapsedTime();
+    const now = Date.now();
+
+    // Kapı portalının hafif nefes alma efekti
+    doorPortal.material.opacity = 0.2 + Math.sin(t * 2.5) * 0.1;
+
+    // 1. Oturan ve Sınıfa Yeni Giren Öğrenci Animasyonları
+    if (gameState && gameState.seatLayout) {
+        gameState.seats.forEach((student, idx) => {
+            if (!student) return;
+            const rig = studentMeshes.get(student.userId);
+            if (!rig) return;
+
+            const seatPos = gameState.seatLayout[idx];
+            const finalX = seatPos.x;
+            const finalY = seatPos.y;
+            const finalZ = seatPos.z - 0.55;
+
+            // DETAYLI GİRİŞ ANİMASYONU (4 Saniye: Kapıdan giriş -> El sallama -> Merdiven tırmanışı -> Sıraya oturma)
+            if (rig.enterStartedAt > 0) {
+                const elapsed = now - rig.enterStartedAt;
+                const p = Math.min(1, elapsed / rig.enterDuration);
+
+                if (p < 1) {
+                    rig.baseRing.material.opacity = 0.55;
+                    if (p < 0.22) {
+                        // Aşama 1: Kapıdan sahneye adım at ve sınıfa el salla
+                        const sub = p / 0.22;
+                        rig.group.position.set(0, 0.2, THREE.MathUtils.lerp(-14.8, -10.5, sub));
+                        rig.group.rotation.y = 0; // Kameraya/sınıfa dönük
+                        rig.rightArm.rotation.z = -2.4 + Math.sin(t * 16) * 0.45; // El sallama
+                        rig.leftLeg.rotation.x = Math.sin(t * 14) * 0.5;
+                        rig.rightLeg.rotation.x = -Math.sin(t * 14) * 0.5;
+                    } else if (p < 0.72) {
+                        // Aşama 2: Orta merdivenlerden kendi basamağına tırman
+                        const sub = (p - 0.22) / 0.50;
+                        const stairY = THREE.MathUtils.lerp(0.2, finalY, sub) + Math.abs(Math.sin(t * 15)) * 0.22;
+                        const stairZ = THREE.MathUtils.lerp(-10.5, finalZ, sub);
+                        rig.group.position.set(0, stairY, stairZ);
+                        rig.group.rotation.y = 0;
+                        rig.rightArm.rotation.z = 0;
+                        rig.rightArm.rotation.x = Math.sin(t * 15) * 0.6;
+                        rig.leftArm.rotation.x = -Math.sin(t * 15) * 0.6;
+                        rig.leftLeg.rotation.x = Math.sin(t * 15) * 0.65;
+                        rig.rightLeg.rotation.x = -Math.sin(t * 15) * 0.65;
+                    } else {
+                        // Aşama 3: Sırasına doğru yürü ve tahtaya dönüp otur
+                        const sub = (p - 0.72) / 0.28;
+                        const curX = THREE.MathUtils.lerp(0, finalX, sub);
+                        rig.group.position.set(curX, finalY + Math.abs(Math.sin(t * 14)) * 0.1, finalZ);
+                        rig.group.rotation.y = finalX >= 0 ? Math.PI / 2 : -Math.PI / 2;
+                        rig.leftLeg.rotation.x = Math.sin(t * 14) * 0.5;
+                        rig.rightLeg.rotation.x = -Math.sin(t * 14) * 0.5;
+                    }
+                    updateCharacterBadge(rig, student, '👋 Sınıfa Giriyor...', '#34d399', 'rgba(6, 78, 59, 0.92)');
+                    return;
+                } else {
+                    rig.enterStartedAt = 0;
+                    rig.baseRing.material.opacity = 0;
+                    rig.leftLeg.rotation.x = 0;
+                    rig.rightLeg.rotation.x = 0;
+                    rig.rightArm.rotation.z = 0;
+                }
+            }
+
+            // Sırasında Oturan Öğrenci Animasyonları
+            rig.group.position.set(finalX, finalY, finalZ);
+            rig.group.rotation.y = seatPos.rotY;
+
+            const isStudying = student.studyingUntil > now;
+            const isCheating = student.cheatingUntil > now;
+            const isCaught = student.statusEffect === 'caught' && student.statusUntil > now;
+            const isAnswerKey = student.statusEffect === 'answer_key' && student.statusUntil > now;
+            const isBurned = student.statusEffect === 'burned' && student.statusUntil > now;
+            const isCheer = student.statusEffect === 'cheer' && student.statusUntil > now;
+
+            if (isCheer || isAnswerKey) {
+                // Kolları havaya kaldırıp sevinme / altın parıltı
+                rig.rightArm.rotation.x = -2.6 + Math.sin(t * 12) * 0.25;
+                rig.leftArm.rotation.x = -2.6 - Math.sin(t * 12) * 0.25;
+                rig.baseRing.material.color.set('#fbbf24');
+                rig.baseRing.material.opacity = 0.65;
+                updateCharacterBadge(rig, student, isAnswerKey ? '🔑 Cevap Anahtarı!' : '🎉 +50 Genel Af!', '#fbbf24');
+            } else if (isCaught || isBurned) {
+                // Yakalanma / Kağıt yanması: Baş öne eğik, kırmızı halka
+                rig.headGroup.rotation.x = 0.42;
+                rig.rightArm.rotation.x = -0.3;
+                rig.leftArm.rotation.x = -0.3;
+                rig.baseRing.material.color.set('#ef4444');
+                rig.baseRing.material.opacity = 0.7;
+                updateCharacterBadge(rig, student, isCaught ? '🚨 Yakalandı!' : '🔥 Kağıt Yandı!', '#ef4444', 'rgba(153, 27, 27, 0.92)');
+            } else if (isCheating) {
+                // Kopya çekme: Kafa hızlıca sağa-sola bakar
+                rig.headGroup.rotation.y = Math.sin(t * 10) * 0.7;
+                rig.headGroup.rotation.x = 0;
+                rig.baseRing.material.color.set('#facc15');
+                rig.baseRing.material.opacity = 0.55;
+                updateCharacterBadge(rig, student, '👀 Kopya Çekiyor!', '#facc15', 'rgba(133, 77, 14, 0.92)');
+            } else if (isStudying) {
+                // Ders çalışma: Hızlı yazı yazma + yeşil halka
+                rig.headGroup.rotation.x = 0.22;
+                rig.headGroup.rotation.y = 0;
+                rig.rightArm.rotation.x = -0.65 + Math.sin(t * 20 + idx) * 0.45;
+                rig.leftArm.rotation.x = -0.65;
+                rig.baseRing.material.color.set('#4ade80');
+                rig.baseRing.material.opacity = 0.5;
+                updateCharacterBadge(rig, student, `📚 ${student.score} Puan`, '#4ade80');
+            } else {
+                // Normal sakin sınav duruşu
+                rig.headGroup.rotation.y = Math.sin(t * 1.4 + idx) * 0.12;
+                rig.headGroup.rotation.x = 0.1;
+                rig.rightArm.rotation.x = -0.6 + Math.sin(t * 3 + idx) * 0.08;
+                rig.leftArm.rotation.x = -0.6;
+                rig.baseRing.material.opacity = 0;
+                updateCharacterBadge(rig, student, `${student.score} Puan`, student.color);
+            }
+        });
+    }
+
+    // 2. DETAYLI ÇIKIŞ ANİMASYONU (4.2 Saniye: Ayağa kalk -> Veda el salla -> Koridora çık -> Merdivenden in -> Kapıdan çık)
+    if (gameState && gameState.seatLayout) {
+        exitingMeshes.forEach(({ rig, data }) => {
+            const seatPos = gameState.seatLayout[data.fromSeatIndex];
+            if (!seatPos) return;
+            const elapsed = now - data.startedAt;
+            const p = Math.min(1, elapsed / data.durationMs);
+
+            const startX = seatPos.x;
+            const startY = seatPos.y;
+            const startZ = seatPos.z - 0.55;
+
+            rig.baseRing.material.color.set('#94a3b8');
+            rig.baseRing.material.opacity = 0.5;
+
+            if (p < 0.22) {
+                // Aşama 1: Ayağa kalkıp veda el sallaması
+                rig.group.position.set(startX, startY + 0.15, startZ);
+                rig.group.rotation.y = 0;
+                rig.rightArm.rotation.z = -2.4 + Math.sin(t * 16) * 0.45;
+            } else if (p < 0.48) {
+                // Aşama 2: Sırasından orta merdivene yürü
+                const sub = (p - 0.22) / 0.26;
+                rig.rightArm.rotation.z = 0;
+                rig.group.position.set(THREE.MathUtils.lerp(startX, 0, sub), startY + Math.abs(Math.sin(t * 14)) * 0.12, startZ);
+                rig.group.rotation.y = startX >= 0 ? -Math.PI / 2 : Math.PI / 2;
+                rig.leftLeg.rotation.x = Math.sin(t * 14) * 0.55;
+                rig.rightLeg.rotation.x = -Math.sin(t * 14) * 0.55;
+            } else if (p < 0.88) {
+                // Aşama 3: Amfi merdivenlerinden aşağı doğru yürü
+                const sub = (p - 0.48) / 0.40;
+                const stairY = THREE.MathUtils.lerp(startY, 0.2, sub) + Math.abs(Math.sin(t * 15)) * 0.2;
+                const stairZ = THREE.MathUtils.lerp(startZ, -11.5, sub);
+                rig.group.position.set(0, stairY, stairZ);
+                rig.group.rotation.y = Math.PI; // Kapıya (-Z) dönük
+                rig.leftLeg.rotation.x = Math.sin(t * 15) * 0.65;
+                rig.rightLeg.rotation.x = -Math.sin(t * 15) * 0.65;
+                rig.rightArm.rotation.x = Math.sin(t * 15) * 0.5;
+                rig.leftArm.rotation.x = -Math.sin(t * 15) * 0.5;
+            } else {
+                // Aşama 4: Giriş/Çıkış kapısından geçip küçülerek kaybol
+                const sub = (p - 0.88) / 0.12;
+                rig.group.position.set(0, 0.2, THREE.MathUtils.lerp(-11.5, -14.8, sub));
+                rig.group.rotation.y = Math.PI;
+                rig.group.scale.setScalar(Math.max(0.05, 1 - sub));
+            }
+        });
+    }
+
+    // 3. Gözetmen Devriye Yürüyüşü
+    proctorMeshes.forEach(pObj => {
+        if (pObj.targetPos) {
+            pObj.group.position.lerp(pObj.targetPos, 0.05);
+            pObj.group.position.y += Math.abs(Math.sin(t * 10)) * 0.04;
+            pObj.aura.rotation.z = t * 1.5;
+        }
+    });
+
+    // 4. Havada Uçan Kopya Kağıt Uçakları ve Işınlar
+    for (let i = paperAirplanes.length - 1; i >= 0; i--) {
+        const pa = paperAirplanes[i];
+        pa.progress += 0.022;
+        if (pa.progress >= 1) {
+            scene.remove(pa.mesh);
+            paperAirplanes.splice(i, 1);
+            continue;
+        }
+        const pos = new THREE.Vector3().lerpVectors(pa.start, pa.end, pa.progress);
+        pos.y += Math.sin(pa.progress * Math.PI) * 2.5;
+        pa.mesh.position.copy(pos);
+        pa.mesh.lookAt(pa.end);
+    }
+
+    for (let i = effectBeams.length - 1; i >= 0; i--) {
+        if (now > effectBeams[i].expiresAt) {
+            scene.remove(effectBeams[i].mesh);
+            effectBeams.splice(i, 1);
+        }
+    }
+
+    for (let i = particle3D.length - 1; i >= 0; i--) {
+        const pt = particle3D[i];
+        pt.mesh.position.x += pt.vx;
+        pt.mesh.position.y += pt.vy;
+        pt.mesh.position.z += pt.vz;
+        pt.vy -= 0.008;
+        pt.life -= 0.024;
+        pt.mesh.scale.setScalar(Math.max(0.01, pt.life));
+        if (pt.life <= 0) {
+            scene.remove(pt.mesh);
+            particle3D.splice(i, 1);
+        }
+    }
+
+    // 5. SIRALI KAMERA VE CANLI TAKİP SİSTEMİ
+    if (cameraMode === 'auto' && (!gameState || !gameState.activeFocus) && now - lastAutoSwitch > 12000) {
+        lastAutoSwitch = now;
+        seqIndex = (seqIndex + 1) % CAMERA_SEQUENCE.length;
+    }
+
+    const activeView = cameraMode === 'auto' ? CAMERA_SEQUENCE[seqIndex] : cameraMode;
+    const badgeEl = document.getElementById('cam-badge');
+
+    let desiredPos = new THREE.Vector3();
+    let desiredLook = new THREE.Vector3();
+
+    if (gameState && gameState.activeFocus) {
+        const focus = gameState.activeFocus;
+
+        if (focus.type === 'join' && studentMeshes.has(focus.userId)) {
+            // Sınıfa giren karakteri yürürken canlı takip et
+            const rig = studentMeshes.get(focus.userId);
+            const p = rig.group.position;
+            desiredPos.set(p.x * 0.65 + 2.8, p.y + 4.4, p.z + 7.2);
+            desiredLook.set(p.x, p.y + 1.4, p.z);
+            badgeEl.textContent = '🎥 Canlı Takip: Sınıfa Giriş Animasyonu';
+        } else if (focus.type === 'leave') {
+            // Sınıftan ayrılan karakteri merdivenlerden inerken canlı takip et
+            let foundExit = null;
+            exitingMeshes.forEach(entry => {
+                if (entry.data.userId === focus.userId) foundExit = entry.rig.group.position;
+            });
+            const p = foundExit || (gameState.seatLayout[focus.seatIndex] || { x: 0, y: 2, z: 0 });
+            desiredPos.set(p.x * 0.65 - 2.8, p.y + 4.4, p.z + 7.5);
+            desiredLook.set(p.x, p.y + 1.4, p.z);
+            badgeEl.textContent = '🎥 Canlı Takip: Sınıftan Ayrılış Animasyonu';
+        } else if (focus.type === 'proctor' && focus.proctorUserId && proctorMeshes.has(focus.proctorUserId)) {
+            // Gözetmen olan bağışçıyı amfi ortasında çek
+            const p = proctorMeshes.get(focus.proctorUserId).group.position;
+            desiredPos.set(p.x * 0.7, p.y + 5.5, p.z + 8.5);
+            desiredLook.set(p.x, p.y + 1.6, p.z);
+            badgeEl.textContent = `💎 VIP Odak: Gözetmen ${focus.coins} Jeton`;
+        } else if (focus.seatIndex >= 0 && focus.targetSeatIndex >= 0 && gameState.seatLayout) {
+            // İkili etkileşim (Kopya veren & alan / Sabotajcı & kurban) ikisini birden kadraja al
+            const p1 = gameState.seatLayout[focus.seatIndex];
+            const p2 = gameState.seatLayout[focus.targetSeatIndex];
+            const midX = (p1.x + p2.x) / 2;
+            const midY = (p1.y + p2.y) / 2;
+            const midZ = (p1.z + p2.z) / 2;
+            desiredPos.set(midX * 0.75, midY + 5.4, midZ + 7.8);
+            desiredLook.set(midX, midY + 1.3, midZ);
+            badgeEl.textContent = focus.isGift ? `💎 VIP Bağış Odağı (${focus.coins} Jeton)` : '🎥 Etkileşim Odağı';
+        } else if (focus.seatIndex >= 0 && gameState.seatLayout && gameState.seatLayout[focus.seatIndex]) {
+            const pos = gameState.seatLayout[focus.seatIndex];
+            desiredPos.set(pos.x * 0.75, pos.y + 4.8, pos.z + 6.6);
+            desiredLook.set(pos.x, pos.y + 1.3, pos.z);
+            badgeEl.textContent = focus.isGift ? `💎 VIP Bağış Odağı (${focus.coins} Jeton)` : '🎥 Etkileşim Odağı';
+        }
+    } else if (activeView === 'bird') {
+        desiredPos.set(Math.sin(t * 0.15) * 3.5, 34, 29);
+        desiredLook.set(0, 2, 2);
+        badgeEl.textContent = '🎥 Kamera [1/3]: Kuş Bakışı (Genel Amfi)';
+    } else if (activeView === 'toboard') {
+        desiredPos.set(0, 7.8, 8.5);
+        desiredLook.set(0, 5.2, -13.5);
+        badgeEl.textContent = '🎥 Kamera [2/3]: Tahtaya Bakış (Canlı Skor)';
+    } else {
+        desiredPos.set(Math.sin(t * 0.2) * 3, 7.2, -9.5);
+        desiredLook.set(0, 4.2, 16);
+        badgeEl.textContent = '🎥 Kamera [3/3]: Tahtadan Bakış (Gözetmen Gözü)';
+    }
+
+    currentCamPos.lerp(desiredPos, 0.055);
+    currentCamLook.lerp(desiredLook, 0.07);
+    camera.position.copy(currentCamPos);
+    camera.lookAt(currentCamLook);
+
+    renderer.render(scene, camera);
+}
+
+animate();
+</script>
+</body>
+</html>
