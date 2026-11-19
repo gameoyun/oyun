@@ -4,6 +4,10 @@ const { Server } = require('socket.io');
 const tiktokLib = require('tiktok-live-connector');
 const path = require('path');
 
+if (tiktokLib.SignConfig && process.env.SIGN_API_KEY) {
+    tiktokLib.SignConfig.apiKey = process.env.SIGN_API_KEY.trim();
+}
+
 // Hem eski (WebcastPushConnection) hem yeni (TikTokLiveConnection) sürüm uyumluluğu
 const TikTokConnectorClass =
     tiktokLib.TikTokLiveConnection ||
@@ -54,7 +58,7 @@ const SEAT_LAYOUT = [];
 
 let tiktokConnection = null;
 let reconnectTimer = null;
-let connectedUsername = (process.env.TIKTOK_USERNAME || '').replace('@', '').trim();
+let connectedUsername = (process.env.TIKTOK_ROOM_ID || process.env.TIKTOK_USERNAME || '').replace('@', '').trim();
 let connectionStatus = 'Bağlantı bekleniyor (Test Modu Aktif)';
 
 // Çift Katmanlı Kamera Kuyruğu
@@ -827,10 +831,11 @@ setInterval(() => {
     });
 }, 1000);
 
-function connectToTikTok(username) {
-    if (!username) return;
-    const cleanUser = username.replace('@', '').trim();
-    connectedUsername = cleanUser;
+function connectToTikTok(targetInput) {
+    if (!targetInput) return;
+    const cleanInput = String(targetInput).replace('@', '').trim();
+    const isRoomId = /^\d+$/.test(cleanInput);
+    connectedUsername = cleanInput;
 
     if (reconnectTimer) {
         clearTimeout(reconnectTimer);
@@ -841,13 +846,17 @@ function connectToTikTok(username) {
         try { tiktokConnection.disconnect(); } catch (e) {}
     }
 
-    connectionStatus = `@${cleanUser} yayınına bağlanılıyor...`;
+    const label = isRoomId ? `Oda #${cleanInput}` : `@${cleanInput}`;
+    connectionStatus = `${label} yayınına bağlanılıyor...`;
     io.emit('status_update', { connectedUsername, connectionStatus });
 
-    tiktokConnection = new TikTokConnectorClass(cleanUser, {
+    // Ücretsiz EulerStream planında ücretli HTTP API imza uç noktasını tetiklememek için
+    // fetchRoomInfoOnConnect ve enableExtendedGiftInfo kapalı tutulur.
+    tiktokConnection = new TikTokConnectorClass(isRoomId ? 'live_user' : cleanInput, {
         processInitialData: false,
-        enableExtendedGiftInfo: true,
-        signApiKey: process.env.SIGN_API_KEY || undefined
+        fetchRoomInfoOnConnect: false,
+        enableExtendedGiftInfo: false,
+        signApiKey: process.env.SIGN_API_KEY ? process.env.SIGN_API_KEY.trim() : undefined
     });
 
     const streakTracker = new Map();
@@ -858,20 +867,29 @@ function connectToTikTok(username) {
 
     tiktokConnection.on('disconnected', () => {
         console.log('TikTok bağlantısı koptu, 10 sn içinde tekrar denenecek...');
-        connectionStatus = `Bağlantı koptu, yeniden deneniyor (@${cleanUser})...`;
+        connectionStatus = `Bağlantı koptu, yeniden deneniyor (${label})...`;
         io.emit('status_update', { connectedUsername, connectionStatus });
-        reconnectTimer = setTimeout(() => connectToTikTok(cleanUser), 10000);
+        reconnectTimer = setTimeout(() => connectToTikTok(cleanInput), 10000);
     });
 
-    tiktokConnection.connect().then(() => {
-        connectionStatus = `CANLI BAĞLI: @${cleanUser}`;
-        console.log('TikTok canlı yayınına bağlandı:', cleanUser);
+    const connectPromise = isRoomId
+        ? tiktokConnection.connect(cleanInput)
+        : tiktokConnection.connect();
+
+    connectPromise.then(() => {
+        connectionStatus = `CANLI BAĞLI: ${label}`;
+        console.log('TikTok canlı yayınına bağlandı:', label);
         io.emit('status_update', { connectedUsername, connectionStatus });
     }).catch(err => {
-        console.error('TikTok bağlantı hatası:', err && err.message ? err.message : err);
-        connectionStatus = `Yayın bekleniyor (@${cleanUser}) - 10 sn içinde tekrar denenecek`;
+        const msg = err && err.message ? err.message : String(err);
+        console.error('TikTok bağlantı hatası:', msg);
+        if (msg.includes('Business plan')) {
+            connectionStatus = `Render IP engeli: Yayın açıkken 19 haneli Room ID girin (Ctrl+U -> "roomId")`;
+        } else {
+            connectionStatus = `Yayın bekleniyor (${label}) - 10 sn içinde tekrar denenecek`;
+        }
         io.emit('status_update', { connectedUsername, connectionStatus });
-        reconnectTimer = setTimeout(() => connectToTikTok(cleanUser), 10000);
+        reconnectTimer = setTimeout(() => connectToTikTok(cleanInput), 10000);
     });
 
     tiktokConnection.on('roomUser', data => {
@@ -924,8 +942,6 @@ function connectToTikTok(username) {
 
 if (connectedUsername) {
     connectToTikTok(connectedUsername);
-} else {
-    console.log('UYARI: TIKTOK_USERNAME ortam değişkeni ayarlı değil. Render Environment kısmından ekleyin veya ?test=1 ile bağlanın.');
 }
 
 io.on('connection', socket => {
