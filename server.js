@@ -53,7 +53,8 @@ const SEAT_LAYOUT = [];
 })();
 
 let tiktokConnection = null;
-let connectedUsername = process.env.TIKTOK_USERNAME || '';
+let reconnectTimer = null;
+let connectedUsername = (process.env.TIKTOK_USERNAME || '').replace('@', '').trim();
 let connectionStatus = 'Bağlantı bekleniyor (Test Modu Aktif)';
 
 // Çift Katmanlı Kamera Kuyruğu
@@ -831,6 +832,11 @@ function connectToTikTok(username) {
     const cleanUser = username.replace('@', '').trim();
     connectedUsername = cleanUser;
 
+    if (reconnectTimer) {
+        clearTimeout(reconnectTimer);
+        reconnectTimer = null;
+    }
+
     if (tiktokConnection) {
         try { tiktokConnection.disconnect(); } catch (e) {}
     }
@@ -841,7 +847,7 @@ function connectToTikTok(username) {
     tiktokConnection = new TikTokConnectorClass(cleanUser, {
         processInitialData: false,
         enableExtendedGiftInfo: true,
-        signApiKey: process.env.SIGN_API_KEY
+        signApiKey: process.env.SIGN_API_KEY || undefined
     });
 
     const streakTracker = new Map();
@@ -850,14 +856,22 @@ function connectToTikTok(username) {
         console.log('TikTok bağlantı uyarısı:', err && err.message ? err.message : err);
     });
 
+    tiktokConnection.on('disconnected', () => {
+        console.log('TikTok bağlantısı koptu, 10 sn içinde tekrar denenecek...');
+        connectionStatus = `Bağlantı koptu, yeniden deneniyor (@${cleanUser})...`;
+        io.emit('status_update', { connectedUsername, connectionStatus });
+        reconnectTimer = setTimeout(() => connectToTikTok(cleanUser), 10000);
+    });
+
     tiktokConnection.connect().then(() => {
         connectionStatus = `CANLI BAĞLI: @${cleanUser}`;
         console.log('TikTok canlı yayınına bağlandı:', cleanUser);
         io.emit('status_update', { connectedUsername, connectionStatus });
-    }).catch(() => {
-        console.error('TikTok bağlantı hatası detayı:', err);
-        connectionStatus = `Yayın bulunamadı veya kapalı (@${cleanUser})`;
+    }).catch(err => {
+        console.error('TikTok bağlantı hatası:', err && err.message ? err.message : err);
+        connectionStatus = `Yayın bekleniyor (@${cleanUser}) - 10 sn içinde tekrar denenecek`;
         io.emit('status_update', { connectedUsername, connectionStatus });
+        reconnectTimer = setTimeout(() => connectToTikTok(cleanUser), 10000);
     });
 
     tiktokConnection.on('roomUser', data => {
@@ -869,11 +883,12 @@ function connectToTikTok(username) {
     });
 
     tiktokConnection.on('chat', data => {
-        const msg = (data.comment || '').trim().toLowerCase();
+        const msg = (data.comment || '').trim().toLocaleLowerCase('tr-TR');
         const user = extractTikTokUser(data);
         touchUserActivity(user.userId);
+        console.log(`[SOHBET] ${user.nickname}: ${data.comment}`);
 
-        if (msg === 'katıl' || msg === 'katil' || msg === '1' || msg.includes('katıl')) {
+        if (msg === 'katıl' || msg === 'katil' || msg === '1' || msg.includes('katıl') || msg.includes('katil')) {
             seatStudent(user);
             io.emit('state_update', { ...gameState, giftQueueLength: giftFocusQueue.length });
         }
@@ -907,7 +922,11 @@ function connectToTikTok(username) {
     });
 }
 
-if (connectedUsername) connectToTikTok(connectedUsername);
+if (connectedUsername) {
+    connectToTikTok(connectedUsername);
+} else {
+    console.log('UYARI: TIKTOK_USERNAME ortam değişkeni ayarlı değil. Render Environment kısmından ekleyin veya ?test=1 ile bağlanın.');
+}
 
 io.on('connection', socket => {
     socket.emit('state_update', { ...gameState, giftQueueLength: giftFocusQueue.length });
