@@ -852,8 +852,10 @@ function connectToTikTok(username) {
 
     tiktokConnection.connect().then(() => {
         connectionStatus = `CANLI BAĞLI: @${cleanUser}`;
+        console.log('TikTok canlı yayınına bağlandı:', cleanUser);
         io.emit('status_update', { connectedUsername, connectionStatus });
     }).catch(() => {
+        console.error('TikTok bağlantı hatası detayı:', err);
         connectionStatus = `Yayın bulunamadı veya kapalı (@${cleanUser})`;
         io.emit('status_update', { connectedUsername, connectionStatus });
     });
