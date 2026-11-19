@@ -23,7 +23,7 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 const MAX_SEATS = 250;
 const ROUND_DURATION = 240; // 4 dakika
-const INACTIVITY_TIMEOUT_MS = 180000; // 3 dakika etkileşimsiz kalan yayından ayrılmış sayılır
+const INACTIVITY_TIMEOUT_MS = 180000; // 3 dakika etkileşimsiz kalan yayından ayrılmış sayılır (1 dk için 60000 yapın)
 
 // 250 Kişilik Basamaklı Yarım Daire Amfi Koordinatları (8 Kademe)
 const TIER_COUNTS = [20, 24, 28, 31, 34, 36, 38, 39];
@@ -85,12 +85,36 @@ let gameState = {
     worldEffect: null
 };
 
+function pickValidId(...candidates) {
+    for (const c of candidates) {
+        if (c === undefined || c === null) continue;
+        const s = typeof c === 'bigint' ? c.toString() : String(c).trim();
+        if (s && s !== '0' && s !== 'undefined' && s !== 'null' && s !== '[object Object]') {
+            return s;
+        }
+    }
+    return '';
+}
+
 function extractTikTokUser(data) {
     const u = (data && data.user) ? data.user : (data || {});
     const picFromArray = u.profilePicture && Array.isArray(u.profilePicture.url) ? u.profilePicture.url[0] : '';
+    const nickname = pickValidId(u.nickname, data.nickname, u.uniqueId, u.displayId, data.uniqueId) || 'İzleyici';
+    const userId = pickValidId(
+        u.userId,
+        u.id,
+        u.secUid,
+        u.uniqueId,
+        u.displayId,
+        data.userId,
+        data.secUid,
+        data.uniqueId,
+        nickname !== 'İzleyici' ? `nick_${nickname}` : ''
+    ) || `anon_${Date.now()}_${Math.random()}`;
+
     return {
-        userId: String(u.uniqueId || data.uniqueId || u.userId || 'izleyici'),
-        nickname: u.nickname || data.nickname || u.uniqueId || 'İzleyici',
+        userId,
+        nickname,
         avatar: picFromArray || u.profilePictureUrl || data.profilePictureUrl || ''
     };
 }
@@ -307,7 +331,7 @@ function seatStudent(user, skipCamera = false, notifyIfAlreadySeated = false) {
     const existingIdx = findStudentByUserId(user.userId);
     if (existingIdx !== -1) {
         touchUserActivity(user.userId);
-        console.log(`[OYUN] ${user.nickname} zaten Sıra #${existingIdx + 1} koltuğunda.`);
+        console.log(`[OYUN] ${user.nickname} (ID: ${user.userId}) zaten Sıra #${existingIdx + 1} koltuğunda.`);
         if (notifyIfAlreadySeated && !skipCamera) {
             const now = Date.now();
             const lastNotify = alreadySeatedCamCooldown.get(user.userId) || 0;
@@ -360,7 +384,7 @@ function seatStudent(user, skipCamera = false, notifyIfAlreadySeated = false) {
     };
 
     const occupiedCount = gameState.seats.filter(Boolean).length;
-    console.log(`[OYUN] + ${user.nickname} Sıra #${chosenSeat + 1} koltuğuna oturdu! (Toplam: ${occupiedCount}/250)`);
+    console.log(`[OYUN] + ${user.nickname} (ID: ${user.userId}) Sıra #${chosenSeat + 1} koltuğuna oturdu! (Toplam: ${occupiedCount}/250)`);
 
     if (!skipCamera) {
         scheduleCameraFocus({
@@ -385,6 +409,7 @@ function removeStudentFromHall(seatIdx, reasonText = 'Yayından ayrıldı') {
 
     const now = Date.now();
     gameState.seats[seatIdx] = null;
+    console.log(`[OYUN] - ${student.nickname} Sıra #${seatIdx + 1} koltuğundan ayrıldı (${reasonText}).`);
 
     gameState.exitingStudents.push({
         id: now + Math.random(),
@@ -921,6 +946,11 @@ function connectToTikTok(targetInput) {
         reconnectTimer = setTimeout(() => connectToTikTok(cleanInput), 10000);
     });
 
+    tiktokConnection.on('member', data => {
+        const u = extractTikTokUser(data);
+        if (u.userId) touchUserActivity(u.userId);
+    });
+
     tiktokConnection.on('roomUser', data => {
         const list = (data && (data.ranks || data.ranksList)) || [];
         list.forEach(r => {
@@ -943,6 +973,15 @@ function connectToTikTok(targetInput) {
         const user = extractTikTokUser(data);
         touchUserActivity(user.userId);
         console.log(`[SOHBET] ${user.nickname}: ${rawComment}`);
+
+        if (msg === 'çık' || msg === 'cik' || msg === 'ayrıl' || msg === 'ayril') {
+            const existingIdx = findStudentByUserId(user.userId);
+            if (existingIdx !== -1) {
+                removeStudentFromHall(existingIdx, 'Sınıftan ayrıldı');
+                io.emit('state_update', { ...gameState, giftQueueLength: giftFocusQueue.length });
+            }
+            return;
+        }
 
         if (msg === 'katıl' || msg === 'katil' || msg === '1' || msg.includes('katıl') || msg.includes('katil')) {
             seatStudent(user, false, true);
