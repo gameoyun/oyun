@@ -841,6 +841,7 @@ function connectToTikTok(username) {
     tiktokConnection = new TikTokConnectorClass(cleanUser, {
         processInitialData: false,
         enableExtendedGiftInfo: true
+        signApiKey: process.env.SIGN_API_KEY
     });
 
     const streakTracker = new Map();
